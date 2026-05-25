@@ -16,6 +16,8 @@ import {
   SOURCE_LABELS,
 } from '@/lib/supabase-types';
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const lookup = (map: Record<string, string>, key: any, fallback = "—") => map[key as string] ?? fallback;
 const supabase = createClient();
 
 type TabId = 'contacts' | 'deals' | 'conferences' | 'interactions' | 'outreach';
