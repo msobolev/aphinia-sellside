@@ -554,18 +554,18 @@ export default function PitchEnginePage() {
                       <td>
                         {c.persona ? (
                           <span className="badge badge-gray">
-                            {PERSONA_LABELS[c.persona] ?? c.persona}
+                            {PERSONA_LABELS[c.persona as ContactPersona] ?? c.persona}
                           </span>
                         ) : '—'}
                       </td>
                       <td>
-                        <span className={`badge badge-${WARMTH_COLORS[c.warmth] ?? 'gray'}`}>
-                          {WARMTH_LABELS[c.warmth] ?? c.warmth}
+                        <span className={`badge badge-${WARMTH_COLORS[c.warmth as ContactWarmth] ?? 'gray'}`}>
+                          {WARMTH_LABELS[c.warmth as ContactWarmth] ?? c.warmth}
                         </span>
                       </td>
                       <td>
-                        <span className={`badge badge-${STATUS_COLORS[c.company_status] ?? 'gray'}`}>
-                          {STATUS_LABELS[c.company_status] ?? c.company_status}
+                        <span className={`badge badge-${STATUS_COLORS[c.company_status as CompanyStatus] ?? 'gray'}`}>
+                          {STATUS_LABELS[c.company_status as CompanyStatus] ?? c.company_status}
                         </span>
                       </td>
                       <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
