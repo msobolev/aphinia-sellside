@@ -396,11 +396,11 @@ export default function CompanyDetailPage({ params }: { params: Promise<{ id: st
                 </td>
                 <td style={{ fontSize: 'var(--text-sm)' }}>{c.title ?? '—'}</td>
                 <td>
-                  {c.persona ? <span className="badge badge-gray">{PERSONA_LABELS[c.persona as ContactPersona] ?? c.persona}</span> : '—'}
+                  {c.persona ? <span className="badge badge-gray">{PERSONA_LABELS[c.persona] ?? c.persona}</span> : '—'}
                 </td>
                 <td>
-                  <span className={`badge badge-${WARMTH_COLORS[c.warmth as ContactWarmth] ?? 'gray'}`}>
-                    {WARMTH_LABELS[c.warmth as ContactWarmth] ?? c.warmth}
+                  <span className={`badge badge-${WARMTH_COLORS[c.warmth] ?? 'gray'}`}>
+                    {WARMTH_LABELS[c.warmth] ?? c.warmth}
                   </span>
                 </td>
                 <td style={{ fontFamily: 'monospace', fontSize: 'var(--text-xs)' }}>{c.email ?? '—'}</td>
@@ -457,7 +457,7 @@ export default function CompanyDetailPage({ params }: { params: Promise<{ id: st
                       d.status === 'prop_signed' ? 'blue' :
                       'yellow'
                     }`}>
-                      {DEAL_STAGE_LABELS[d.status as DealStatus] ?? d.status}
+                      {DEAL_STAGE_LABELS[d.status] ?? d.status}
                     </span>
                   </td>
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
@@ -518,7 +518,7 @@ export default function CompanyDetailPage({ params }: { params: Promise<{ id: st
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 'var(--space-2)' }}>
                   <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
                     <span className="badge badge-gray">
-                      {SOURCE_LABELS[i.source as InteractionSource] ?? i.source}
+                      {SOURCE_LABELS[i.source] ?? i.source}
                     </span>
                     {i.contacts && (
                       <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
