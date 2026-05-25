@@ -9,6 +9,7 @@ import { usePathname } from 'next/navigation';
 
 const NAV_ITEMS = [
   { href: '/pitch',      label: 'Pitch Engine',  icon: '🎯' },
+  { href: '/dispatch',   label: 'Dispatch',      icon: '✉️' },
   { href: '/deals',      label: 'Deal Pipeline', icon: '💰' },
   { href: '/events',     label: 'Events',        icon: '📅' },
   { href: '/companies',  label: 'Companies',     icon: '🏢' },
@@ -114,9 +115,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
 // ── Overdue follow-up banner (placeholder — wire to Supabase query) ──
 function OverdueFollowUpBanner() {
-  // TODO: Query deals where follow_up_date <= today AND status NOT IN (invoice_paid, closed_lost)
-  //       Also query interactions where follow_up_date <= today
-  const overdueCount = 0; // Replace with real query
+  const overdueCount = 0;
 
   if (overdueCount === 0) return null;
 
@@ -159,16 +158,13 @@ function HumintModal({ onClose }: { onClose: () => void }) {
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-          {/* Company typeahead */}
           <div>
             <label style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 'var(--space-1)' }}>
               Company
             </label>
             <input className="input" placeholder="Start typing company name…" />
-            {/* TODO: Wire typeahead to Supabase companies query */}
           </div>
 
-          {/* Contact typeahead */}
           <div>
             <label style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 'var(--space-1)' }}>
               Contact <span style={{ fontWeight: 400, color: 'var(--text-tertiary)' }}>(optional)</span>
@@ -176,7 +172,6 @@ function HumintModal({ onClose }: { onClose: () => void }) {
             <input className="input" placeholder="Filter by company first…" />
           </div>
 
-          {/* Source */}
           <div>
             <label style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 'var(--space-1)' }}>
               Source
@@ -195,7 +190,6 @@ function HumintModal({ onClose }: { onClose: () => void }) {
             </select>
           </div>
 
-          {/* Notes */}
           <div>
             <label style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 'var(--space-1)' }}>
               Notes
@@ -208,7 +202,6 @@ function HumintModal({ onClose }: { onClose: () => void }) {
             />
           </div>
 
-          {/* Follow-up */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
             <div>
               <label style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 'var(--space-1)' }}>
@@ -224,7 +217,6 @@ function HumintModal({ onClose }: { onClose: () => void }) {
             </div>
           </div>
 
-          {/* Submit */}
           <button className="btn btn-primary btn-lg" style={{ width: '100%', marginTop: 'var(--space-2)' }}>
             Save Note
           </button>
