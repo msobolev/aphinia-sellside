@@ -1,0 +1,62 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #0a0a0b;
+  --bg-card: #111113;
+  --bg-hover: #1a1a1d;
+  --bg-input: #18181b;
+  --border: #27272a;
+  --border-focus: #3f3f46;
+  --text: #fafafa;
+  --text-muted: #a1a1aa;
+  --text-dim: #71717a;
+  --accent: #22d3ee;
+  --accent-dim: #0e7490;
+  --hot: #ef4444;
+  --warm: #f59e0b;
+  --cool: #3b82f6;
+  --cold: #6b7280;
+  --client: #10b981;
+  --prospect: #8b5cf6;
+  --high-value: #3b82f6;
+  --success: #10b981;
+  --danger: #ef4444;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'DM Sans', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+@font-face {
+  font-family: 'DM Sans';
+  src: url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap');
+}
+
+input, select, textarea {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+input:focus, select:focus, textarea:focus {
+  border-color: var(--accent-dim);
+}
+
+::selection {
+  background: var(--accent-dim);
+  color: white;
+}
+
+body { scrollbar-width: thin; }
+body::-webkit-scrollbar { width: 6px; }
+body::-webkit-scrollbar-track { background: transparent; }
+body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
