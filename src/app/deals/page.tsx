@@ -1,256 +1,501 @@
-// app/deals/page.tsx
-// Screen 2: Deal Pipeline — kanban board with drag-drop, overdue follow-ups
-
+// src/app/deals/page.tsx
+// Deal Pipeline with Create/Edit modal (Step 5)
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-client';
-import type { DealStatus, Deal } from '@/lib/supabase-types';
-import { DEAL_STAGE_LABELS, DEAL_STAGE_COLORS } from '@/lib/supabase-types';
 
-const supabase = createClient();
-
-const COLUMNS: DealStatus[] = ['draft', 'prop_sent', 'prop_signed', 'invoice_sent', 'invoice_paid', 'closed_lost'];
-
-function daysSince(dateStr: string | null): number | null {
-  if (!dateStr) return null;
-  const d = new Date(dateStr);
-  const now = new Date();
-  return Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
+interface Deal {
+  id: string;
+  company_id: string;
+  contact_id: string;
+  event_id: string;
+  amount: number;
+  stage: string;
+  probability: number | null;
+  follow_up_date: string | null;
+  notes: string | null;
+  created_at: string;
+  companies: { name: string } | null;
+  contacts: { name: string } | null;
+  events: { name: string } | null;
 }
 
-function isOverdue(followUpDate: string | null): boolean {
-  if (!followUpDate) return false;
-  return new Date(followUpDate) <= new Date();
-}
+interface CompanyOption { id: string; name: string; }
+interface ContactOption { id: string; name: string; }
+interface EventOption { id: string; name: string; }
 
-function formatCurrency(amount: number | null | undefined): string {
-  if (!amount) return '—';
-  return `$${amount.toLocaleString()}`;
-}
+const STAGES = ['draft', 'prop_sent', 'prop_signed'];
+const STAGE_LABELS: Record<string, string> = {
+  draft: 'Draft',
+  prop_sent: 'Proposal Sent',
+  prop_signed: 'Signed',
+};
+const STAGE_COLOR: Record<string, string> = {
+  draft: 'var(--yellow)',
+  prop_sent: 'var(--blue)',
+  prop_signed: 'var(--green)',
+};
 
-function formatDate(dateStr: string | null | undefined): string {
-  if (!dateStr) return '';
-  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
+const EMPTY_FORM = {
+  company_id: '',
+  company_search: '',
+  contact_id: '',
+  event_id: '',
+  amount: 15000,
+  stage: 'draft',
+  probability: 50,
+  follow_up_date: '',
+  notes: '',
+};
 
 export default function DealsPage() {
-  const [deals, setDeals] = useState<any[]>([]);
+  const [deals, setDeals] = useState<Deal[]>([]);
   const [loading, setLoading] = useState(true);
-  const [dragId, setDragId] = useState<string | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState('');
+  const [view, setView] = useState<'kanban' | 'list'>('kanban');
 
-  const fetchDeals = useCallback(async () => {
-    setLoading(true);
-    const { data, error } = await supabase
+  // Company search
+  const [companySuggestions, setCompanySuggestions] = useState<CompanyOption[]>([]);
+  const [contacts, setContacts] = useState<ContactOption[]>([]);
+  const [events, setEvents] = useState<EventOption[]>([]);
+
+  const supabase = createClient();
+  const router = useRouter();
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+
+  const loadDeals = useCallback(async () => {
+    const { data } = await supabase
       .from('deals')
-      .select(`
-        *,
-        company:companies(id, name, status),
-        contact:contacts(id, first_name, last_name),
-        event:events(id, name, event_date)
-      `)
+      .select('*, companies(name), contacts(name), events(name)')
       .order('created_at', { ascending: false });
-
-    if (!error && data) setDeals(data);
+    setDeals((data as unknown as Deal[]) || []);
     setLoading(false);
-  }, []);
+  }, [supabase]);
 
-  useEffect(() => { fetchDeals(); }, [fetchDeals]);
+  useEffect(() => { loadDeals(); }, [loadDeals]);
 
-  // Group by status
-  const columns = COLUMNS.map(status => ({
-    status,
-    label: DEAL_STAGE_LABELS[status],
-    color: DEAL_STAGE_COLORS[status],
-    deals: deals.filter(d => d.status === status),
-  }));
+  // Load events once for the dropdown
+  useEffect(() => {
+    async function loadEvents() {
+      const { data } = await supabase.from('events').select('id, name').order('date', { ascending: true });
+      setEvents((data || []) as EventOption[]);
+    }
+    loadEvents();
+  }, [supabase]);
 
-  // Stats
-  const overdueDeals = deals.filter(d =>
-    d.follow_up_date && isOverdue(d.follow_up_date) && d.status !== 'invoice_paid' && d.status !== 'closed_lost'
-  );
-  const totalPipeline = deals
-    .filter(d => !['invoice_paid', 'closed_lost'].includes(d.status))
+  // Company typeahead
+  useEffect(() => {
+    clearTimeout(debounceRef.current);
+    if (form.company_search.length < 2) { setCompanySuggestions([]); return; }
+    debounceRef.current = setTimeout(async () => {
+      const { data } = await supabase
+        .from('companies')
+        .select('id, name')
+        .ilike('name', `%${form.company_search}%`)
+        .limit(8);
+      setCompanySuggestions((data || []) as CompanyOption[]);
+    }, 200);
+    return () => clearTimeout(debounceRef.current);
+  }, [form.company_search, supabase]);
+
+  // Load contacts when company changes
+  useEffect(() => {
+    if (!form.company_id) { setContacts([]); return; }
+    async function loadContacts() {
+      const { data } = await supabase
+        .from('contacts')
+        .select('id, name')
+        .eq('company_id', form.company_id)
+        .order('name');
+      setContacts((data || []) as ContactOption[]);
+    }
+    loadContacts();
+  }, [form.company_id, supabase]);
+
+  const dealsByStage = STAGES.reduce((acc, stage) => {
+    acc[stage] = deals.filter(d => d.stage === stage);
+    return acc;
+  }, {} as Record<string, Deal[]>);
+
+  const totalPipeline = deals.reduce((sum, d) => sum + (d.amount || 0), 0);
+  const openPipeline = deals
+    .filter(d => d.stage !== 'prop_signed')
     .reduce((sum, d) => sum + (d.amount || 0), 0);
-  const totalBooked = deals
-    .filter(d => d.status === 'invoice_paid')
-    .reduce((sum, d) => sum + (d.amount || 0), 0);
+  const weightedPipeline = deals
+    .filter(d => d.stage !== 'prop_signed')
+    .reduce((sum, d) => sum + (d.amount || 0) * ((d.probability || 50) / 100), 0);
 
-  // Drag and drop
-  const handleDragStart = (dealId: string) => setDragId(dealId);
-  const handleDrop = async (targetStatus: DealStatus) => {
-    if (!dragId) return;
-    const deal = deals.find(d => d.id === dragId);
-    if (!deal || deal.status === targetStatus) { setDragId(null); return; }
+  function openCreate() {
+    setEditingId(null);
+    setForm(EMPTY_FORM);
+    setModalOpen(true);
+  }
 
-    // Optimistic update
-    setDeals(prev => prev.map(d => d.id === dragId ? { ...d, status: targetStatus } : d));
-    setDragId(null);
+  function openEdit(deal: Deal) {
+    setEditingId(deal.id);
+    setForm({
+      company_id: deal.company_id || '',
+      company_search: deal.companies?.name || '',
+      contact_id: deal.contact_id || '',
+      event_id: deal.event_id || '',
+      amount: deal.amount || 0,
+      stage: deal.stage || 'draft',
+      probability: deal.probability ?? 50,
+      follow_up_date: deal.follow_up_date || '',
+      notes: deal.notes || '',
+    });
+    setModalOpen(true);
+  }
 
-    // Build update payload with stage dates
-    const update: any = { status: targetStatus, updated_at: new Date().toISOString() };
-    if (targetStatus === 'prop_sent' && !deal.sent_date) update.sent_date = new Date().toISOString().slice(0, 10);
-    if (targetStatus === 'prop_signed' && !deal.signed_date) update.signed_date = new Date().toISOString().slice(0, 10);
-    if (targetStatus === 'invoice_sent' && !deal.invoice_date) update.invoice_date = new Date().toISOString().slice(0, 10);
-    if (targetStatus === 'invoice_paid' && !deal.paid_date) update.paid_date = new Date().toISOString().slice(0, 10);
+  async function handleSave() {
+    if (!form.company_id || !form.event_id) return;
+    setSaving(true);
 
-    await supabase.from('deals').update(update).eq('id', dragId);
+    const payload = {
+      company_id: form.company_id,
+      contact_id: form.contact_id || null,
+      event_id: form.event_id,
+      amount: form.amount,
+      stage: form.stage,
+      probability: form.probability,
+      follow_up_date: form.follow_up_date || null,
+      notes: form.notes.trim() || null,
+    };
 
-    // If signed, auto-create event_sponsor row
-    if (targetStatus === 'prop_signed' && deal.event_id) {
-      await supabase.from('event_sponsors').upsert({
-        event_id: deal.event_id,
-        company_id: deal.company_id,
-        deal_id: deal.id,
-        sponsor_type: 'co_sponsor',
-        amount_paid: 0,
-      }, { onConflict: 'event_id,company_id' });
+    if (editingId) {
+      await supabase.from('deals').update(payload).eq('id', editingId);
+      showToast('Deal updated');
+    } else {
+      await supabase.from('deals').insert(payload);
+      showToast('Deal created');
     }
 
-    // If paid, update event_sponsor amount
-    if (targetStatus === 'invoice_paid' && deal.event_id && deal.amount) {
-      await supabase
-        .from('event_sponsors')
-        .update({ amount_paid: deal.amount })
-        .eq('event_id', deal.event_id)
-        .eq('company_id', deal.company_id);
-    }
-  };
+    setSaving(false);
+    setModalOpen(false);
+    loadDeals();
+  }
+
+  async function handleDelete() {
+    if (!editingId) return;
+    if (!confirm('Delete this deal? This cannot be undone.')) return;
+    await supabase.from('deals').delete().eq('id', editingId);
+    showToast('Deal deleted');
+    setModalOpen(false);
+    loadDeals();
+  }
+
+  function showToast(msg: string) {
+    setToast(msg);
+    setTimeout(() => setToast(''), 2000);
+  }
+
+  function updateForm(field: string, value: string | number) {
+    setForm(prev => ({ ...prev, [field]: value }));
+  }
+
+  function selectCompany(c: CompanyOption) {
+    setForm(prev => ({ ...prev, company_id: c.id, company_search: c.name, contact_id: '' }));
+    setCompanySuggestions([]);
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
 
   return (
     <div>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--space-5)' }}>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 'var(--space-4)' }}>
         <div>
           <h1 className="page-title">Deal Pipeline</h1>
-          <p className="page-subtitle">Drag cards between stages</p>
+          <p className="page-subtitle">
+            {deals.length} deals · ${openPipeline.toLocaleString()} open · ${Math.round(weightedPipeline).toLocaleString()} weighted
+          </p>
         </div>
-        <div style={{ display: 'flex', gap: 'var(--space-8)', textAlign: 'right' }}>
-          <div className="stat-card">
-            <span className="stat-value" style={{ color: 'var(--accent)' }}>{formatCurrency(totalPipeline)}</span>
-            <span className="stat-label">In Pipeline</span>
+        <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 2, background: 'var(--bg-input)', borderRadius: 'var(--radius-md)', padding: 2 }}>
+            <button className={`btn btn-sm ${view === 'kanban' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setView('kanban')}>Board</button>
+            <button className={`btn btn-sm ${view === 'list' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setView('list')}>List</button>
           </div>
-          <div className="stat-card">
-            <span className="stat-value" style={{ color: 'var(--green)' }}>{formatCurrency(totalBooked)}</span>
-            <span className="stat-label">Booked Revenue</span>
-          </div>
+          <button className="btn btn-primary" onClick={openCreate}>+ New Deal</button>
         </div>
       </div>
 
-      {/* Overdue alert */}
-      {overdueDeals.length > 0 && (
-        <div className="alert-bar" style={{ marginBottom: 'var(--space-5)' }}>
-          <span style={{ fontSize: 20 }}>⚠️</span>
-          <span>
-            <strong>{overdueDeals.length} deal{overdueDeals.length > 1 ? 's' : ''} with overdue follow-ups</strong>
-            {' — '}
-            {overdueDeals.slice(0, 3).map(d => d.company?.name || 'Unknown').join(', ')}
-            {overdueDeals.length > 3 && ` +${overdueDeals.length - 3} more`}
-          </span>
+      {loading ? (
+        <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-tertiary)' }}>Loading...</div>
+      ) : deals.length === 0 ? (
+        <div className="card">
+          <div className="card-body">
+            <div className="empty-state">
+              <div className="empty-state-icon">💰</div>
+              <div className="empty-state-title">No deals yet</div>
+              <div className="empty-state-text">Create your first deal to start tracking your pipeline.</div>
+              <button className="btn btn-primary" style={{ marginTop: 'var(--space-4)' }} onClick={openCreate}>
+                + Create First Deal
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : view === 'kanban' ? (
+        /* ── Kanban View ── */
+        <div className="kanban-board">
+          {STAGES.map(stage => {
+            const stageDeals = dealsByStage[stage] || [];
+            const stageTotal = stageDeals.reduce((s, d) => s + (d.amount || 0), 0);
+            return (
+              <div key={stage} className="kanban-column">
+                <div className="kanban-column-header">
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ width: 10, height: 10, borderRadius: '50%', background: STAGE_COLOR[stage] }} />
+                    {STAGE_LABELS[stage]}
+                  </span>
+                  <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
+                    {stageDeals.length} · ${stageTotal.toLocaleString()}
+                  </span>
+                </div>
+                {stageDeals.map(deal => {
+                  const isOverdue = deal.follow_up_date && deal.follow_up_date < today && deal.stage !== 'prop_signed';
+                  return (
+                    <div
+                      key={deal.id}
+                      className="kanban-card"
+                      onClick={() => openEdit(deal)}
+                      style={{
+                        borderLeft: isOverdue ? '3px solid var(--red)' : undefined,
+                      }}
+                    >
+                      <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)', marginBottom: 6 }}>
+                        {deal.companies?.name || 'Unknown'}
+                      </div>
+                      <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginBottom: 8 }}>
+                        {deal.events?.name || 'No event'} · {deal.contacts?.name || 'No contact'}
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontWeight: 700, fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>
+                          ${(deal.amount || 0).toLocaleString()}
+                        </span>
+                        <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
+                          {deal.probability != null && (
+                            <span className="badge badge-neutral">{deal.probability}%</span>
+                          )}
+                          {deal.follow_up_date && (
+                            <span style={{
+                              fontSize: 'var(--text-xs)',
+                              color: isOverdue ? 'var(--red)' : 'var(--text-tertiary)',
+                              fontWeight: isOverdue ? 600 : 400,
+                            }}>
+                              F/U: {new Date(deal.follow_up_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        /* ── List View ── */
+        <div className="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Company</th>
+                <th>Event</th>
+                <th>Contact</th>
+                <th>Stage</th>
+                <th>Amount</th>
+                <th>Probability</th>
+                <th>Follow-up</th>
+              </tr>
+            </thead>
+            <tbody>
+              {deals.map(deal => {
+                const isOverdue = deal.follow_up_date && deal.follow_up_date < today && deal.stage !== 'prop_signed';
+                return (
+                  <tr key={deal.id} onClick={() => openEdit(deal)}>
+                    <td style={{ fontWeight: 600 }}>{deal.companies?.name || 'Unknown'}</td>
+                    <td>{deal.events?.name || '—'}</td>
+                    <td>{deal.contacts?.name || '—'}</td>
+                    <td>
+                      <span className={`badge ${
+                        deal.stage === 'prop_signed' ? 'badge-green' :
+                        deal.stage === 'prop_sent' ? 'badge-blue' : 'badge-yellow'
+                      }`}>
+                        {STAGE_LABELS[deal.stage] || deal.stage}
+                      </span>
+                    </td>
+                    <td style={{ fontWeight: 700 }}>${(deal.amount || 0).toLocaleString()}</td>
+                    <td>{deal.probability != null ? `${deal.probability}%` : '—'}</td>
+                    <td style={{
+                      color: isOverdue ? 'var(--red)' : 'var(--text-secondary)',
+                      fontWeight: isOverdue ? 600 : 400,
+                    }}>
+                      {deal.follow_up_date
+                        ? new Date(deal.follow_up_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                        : '—'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
 
-      {/* Kanban board */}
-      <div className="kanban-board">
-        {columns.map(col => (
-          <div
-            key={col.status}
-            className="kanban-column"
-            onDragOver={e => e.preventDefault()}
-            onDrop={() => handleDrop(col.status)}
-          >
-            {/* Column header */}
-            <div className="kanban-column-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-                <div style={{ width: 10, height: 10, borderRadius: '50%', background: col.color }} />
-                <span className="kanban-column-title">{col.label}</span>
-              </div>
-              <span className="kanban-count">{col.deals.length}</span>
+      {/* ── Create/Edit Modal ── */}
+      {modalOpen && (
+        <div className="modal-overlay" onClick={() => setModalOpen(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 620 }}>
+            <div className="modal-header">
+              <h2 className="modal-title">{editingId ? 'Edit Deal' : 'New Deal'}</h2>
+              <button className="btn-ghost" onClick={() => setModalOpen(false)} style={{ padding: 4, fontSize: 20 }}>✕</button>
             </div>
+            <div className="modal-body">
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
 
-            {/* Deal amount total for column */}
-            {col.deals.length > 0 && (
-              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-                {formatCurrency(col.deals.reduce((s, d) => s + (d.amount || 0), 0))}
-              </div>
-            )}
-
-            {/* Cards */}
-            {col.deals.map(deal => {
-              const overdue = isOverdue(deal.follow_up_date) && !['invoice_paid', 'closed_lost'].includes(deal.status);
-              return (
-                <div
-                  key={deal.id}
-                  className={`kanban-card ${overdue ? 'overdue' : ''}`}
-                  draggable
-                  onDragStart={() => handleDragStart(deal.id)}
-                  style={{ opacity: dragId === deal.id ? 0.4 : 1 }}
-                >
-                  {/* Company name */}
-                  <div style={{ fontWeight: 700, fontSize: 'var(--text-sm)', marginBottom: 'var(--space-1)' }}>
-                    {deal.company?.name || 'Unknown'}
-                  </div>
-
-                  {/* Event */}
-                  {deal.event && (
-                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--accent)', fontWeight: 500, marginBottom: 'var(--space-2)' }}>
-                      {deal.event.name}
-                      {deal.event.event_date && ` · ${formatDate(deal.event.event_date)}`}
+                {/* Company search */}
+                <div className="form-group" style={{ gridColumn: '1 / -1', position: 'relative' }}>
+                  <label className="label">Company *</label>
+                  <input
+                    className="input"
+                    placeholder="Search company..."
+                    value={form.company_search}
+                    onChange={e => {
+                      updateForm('company_search', e.target.value);
+                      updateForm('company_id', '');
+                    }}
+                  />
+                  {form.company_id && (
+                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--green)', marginTop: 4, fontWeight: 500 }}>
+                      ✓ {form.company_search}
                     </div>
                   )}
-
-                  {/* Contact */}
-                  {deal.contact && (
-                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginBottom: 'var(--space-2)' }}>
-                      {[deal.contact.first_name, deal.contact.last_name].filter(Boolean).join(' ')}
-                    </div>
-                  )}
-
-                  {/* Amount + days in stage */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'var(--space-2)' }}>
-                    <span style={{ fontWeight: 700, fontSize: 'var(--text-sm)', fontVariantNumeric: 'tabular-nums' }}>
-                      {formatCurrency(deal.amount)}
-                    </span>
-                    {deal.created_at && (
-                      <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
-                        {daysSince(deal.created_at)}d
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Follow-up */}
-                  {deal.follow_up_date && (
+                  {companySuggestions.length > 0 && !form.company_id && (
                     <div style={{
-                      marginTop: 'var(--space-2)',
-                      fontSize: 'var(--text-xs)',
-                      fontWeight: 600,
-                      color: overdue ? 'var(--red)' : 'var(--text-tertiary)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 'var(--space-1)',
+                      position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10,
+                      background: 'var(--bg-card)', border: '1px solid var(--border-default)',
+                      borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-md)',
+                      maxHeight: 200, overflowY: 'auto', marginTop: 4,
                     }}>
-                      {overdue ? '⚠️' : '📅'} Follow up {formatDate(deal.follow_up_date)}
-                    </div>
-                  )}
-
-                  {/* Spark referral badge */}
-                  {deal.spark_referral && (
-                    <div style={{ marginTop: 'var(--space-2)' }}>
-                      <span className="badge badge-purple" style={{ fontSize: 11 }}>Spark ⚡</span>
+                      {companySuggestions.map(c => (
+                        <div key={c.id} style={{ padding: '10px 16px', cursor: 'pointer', fontSize: 'var(--text-sm)' }}
+                          onMouseDown={() => selectCompany(c)}
+                        >
+                          {c.name}
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
-              );
-            })}
 
-            {col.deals.length === 0 && (
-              <div style={{ textAlign: 'center', padding: 'var(--space-6)', color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>
-                No deals
+                {/* Event */}
+                <div className="form-group">
+                  <label className="label">Event *</label>
+                  <select className="select" value={form.event_id} onChange={e => updateForm('event_id', e.target.value)}>
+                    <option value="">— Select event —</option>
+                    {events.map(ev => (
+                      <option key={ev.id} value={ev.id}>{ev.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Contact */}
+                <div className="form-group">
+                  <label className="label">Contact</label>
+                  <select className="select" value={form.contact_id} onChange={e => updateForm('contact_id', e.target.value)}>
+                    <option value="">— Select contact —</option>
+                    {contacts.map(ct => (
+                      <option key={ct.id} value={ct.id}>{ct.name}</option>
+                    ))}
+                  </select>
+                  {!form.company_id && (
+                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 4 }}>
+                      Select a company first
+                    </div>
+                  )}
+                </div>
+
+                {/* Stage */}
+                <div className="form-group">
+                  <label className="label">Stage</label>
+                  <select className="select" value={form.stage} onChange={e => updateForm('stage', e.target.value)}>
+                    {STAGES.map(s => (
+                      <option key={s} value={s}>{STAGE_LABELS[s]}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Amount */}
+                <div className="form-group">
+                  <label className="label">Amount ($)</label>
+                  <input className="input" type="number" min="0" step="1000" value={form.amount} onChange={e => updateForm('amount', parseInt(e.target.value) || 0)} />
+                </div>
+
+                {/* Probability */}
+                <div className="form-group">
+                  <label className="label">Probability (%)</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+                    <input
+                      style={{ flex: 1 }}
+                      type="range" min="0" max="100" step="5"
+                      value={form.probability}
+                      onChange={e => updateForm('probability', parseInt(e.target.value))}
+                    />
+                    <span style={{ fontWeight: 700, fontSize: 'var(--text-sm)', minWidth: 40, textAlign: 'right' }}>
+                      {form.probability}%
+                    </span>
+                  </div>
+                </div>
+
+                {/* Follow-up date */}
+                <div className="form-group">
+                  <label className="label">Follow-up Date</label>
+                  <input className="input" type="date" value={form.follow_up_date} onChange={e => updateForm('follow_up_date', e.target.value)} />
+                </div>
+
+                {/* Notes */}
+                <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                  <label className="label">Notes</label>
+                  <textarea
+                    className="input textarea"
+                    placeholder="Deal context, negotiation notes..."
+                    value={form.notes}
+                    onChange={e => updateForm('notes', e.target.value)}
+                    rows={3}
+                  />
+                </div>
               </div>
-            )}
+            </div>
+            <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
+              <div>
+                {editingId && (
+                  <button className="btn" style={{ color: 'var(--red)' }} onClick={handleDelete}>
+                    Delete Deal
+                  </button>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 'var(--space-3)' }}>
+                <button className="btn btn-secondary" onClick={() => setModalOpen(false)}>Cancel</button>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleSave}
+                  disabled={!form.company_id || !form.event_id || saving}
+                >
+                  {saving ? 'Saving...' : editingId ? 'Save Changes' : 'Create Deal'}
+                </button>
+              </div>
+            </div>
           </div>
-        ))}
-      </div>
+        </div>
+      )}
+
+      {toast && <div className="toast">{toast}</div>}
     </div>
   );
 }
