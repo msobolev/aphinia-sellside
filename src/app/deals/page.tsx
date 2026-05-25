@@ -67,7 +67,7 @@ export default function DealsPage() {
 
   const supabase = createClient();
   const router = useRouter();
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const loadDeals = useCallback(async () => {
     const { data } = await supabase
