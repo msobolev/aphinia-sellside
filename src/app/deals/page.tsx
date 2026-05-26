@@ -4,7 +4,7 @@
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase-client';
-import { DEAL_STATUS_LABELS } from '@/lib/supabase-types';
+import { DEAL_STAGE_LABELS } from '@/lib/supabase-types';
 
 const supabase = createClient();
 
@@ -260,7 +260,7 @@ export default function DealsPage() {
                 <div className="kanban-column-header">
                   <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ width: 10, height: 10, borderRadius: '50%', background: STAGE_COLOR[stg] }} />
-                    <span className="kanban-column-title">{DEAL_STATUS_LABELS[stg] || stg}</span>
+                    <span className="kanban-column-title">{DEAL_STAGE_LABELS[stg] || stg}</span>
                   </span>
                   <span className="kanban-count">{stgDeals.length} · ${stgTotal.toLocaleString()}</span>
                 </div>
@@ -327,7 +327,7 @@ export default function DealsPage() {
                       <td style={{ fontWeight: 600 }}>{deal.companies?.name || 'Unknown'}</td>
                       <td style={{ fontSize: 'var(--text-sm)' }}>{deal.events?.name || '—'}</td>
                       <td style={{ fontSize: 'var(--text-sm)' }}>{contactName(deal.contacts)}</td>
-                      <td><span className={`badge ${STAGE_BADGE[deal.status] || 'badge-gray'}`}>{DEAL_STATUS_LABELS[deal.status] || deal.status}</span></td>
+                      <td><span className={`badge ${STAGE_BADGE[deal.status] || 'badge-gray'}`}>{DEAL_STAGE_LABELS[deal.status] || deal.status}</span></td>
                       <td style={{ textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>${(deal.amount || 0).toLocaleString()}</td>
                       <td>
                         {age != null && age > 0 ? (
@@ -402,7 +402,7 @@ export default function DealsPage() {
               <div>
                 <label style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 'var(--space-1)' }}>Stage</label>
                 <select className="input select" value={form.status} onChange={e => updateForm('status', e.target.value)}>
-                  {STAGES.map(s => <option key={s} value={s}>{DEAL_STATUS_LABELS[s] || s}</option>)}
+                  {STAGES.map(s => <option key={s} value={s}>{DEAL_STAGE_LABELS[s] || s}</option>)}
                 </select>
               </div>
 

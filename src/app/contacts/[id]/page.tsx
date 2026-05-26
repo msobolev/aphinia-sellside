@@ -9,7 +9,7 @@ import { createClient } from '@/lib/supabase-client';
 import {
   WARMTH_LABELS, WARMTH_COLORS,
   PERSONA_LABELS,
-  DEAL_STATUS_LABELS,
+  DEAL_STAGE_LABELS,
   SOURCE_LABELS,
 } from '@/lib/supabase-types';
 import type { ContactPersona, ContactWarmth } from '@/lib/supabase-types';
@@ -398,7 +398,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
             {deals.map((d: any) => (
               <tr key={d.id}>
                 <td style={{ fontWeight: 600 }}>{d.events?.name ?? '—'}</td>
-                <td><span className={`badge badge-${d.status === 'invoice_paid' ? 'green' : d.status === 'closed_lost' ? 'red' : d.status === 'prop_signed' ? 'green' : 'yellow'}`}>{DEAL_STATUS_LABELS[d.status] ?? d.status}</span></td>
+                <td><span className={`badge badge-${d.status === 'invoice_paid' ? 'green' : d.status === 'closed_lost' ? 'red' : d.status === 'prop_signed' ? 'green' : 'yellow'}`}>{DEAL_STAGE_LABELS[d.status] ?? d.status}</span></td>
                 <td style={{ textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{d.amount ? `$${Number(d.amount).toLocaleString()}` : '—'}</td>
                 <td style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{d.follow_up || '—'}</td>
                 <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>{d.sent_date ? new Date(d.sent_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}</td>

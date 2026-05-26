@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-client';
-import { DEAL_STATUS_LABELS } from '@/lib/supabase-types';
+import { DEAL_STAGE_LABELS } from '@/lib/supabase-types';
 
 const supabase = createClient();
 
@@ -269,7 +269,7 @@ export default function DashboardPage() {
                         <Link href={`/companies/${d.company_id}`} style={{ textDecoration: 'none' }}>{d.companies?.name || '—'}</Link>
                       </td>
                       <td style={{ fontSize: 'var(--text-sm)' }}>{d.events?.name || '—'}</td>
-                      <td><span className={`badge ${STAGE_BADGE[d.status] || 'badge-gray'}`}>{DEAL_STATUS_LABELS[d.status] || d.status}</span></td>
+                      <td><span className={`badge ${STAGE_BADGE[d.status] || 'badge-gray'}`}>{DEAL_STAGE_LABELS[d.status] || d.status}</span></td>
                       <td style={{ textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>${(d.amount || 0).toLocaleString()}</td>
                       <td>
                         {age != null && age > 0 ? (
