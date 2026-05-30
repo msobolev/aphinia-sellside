@@ -3,9 +3,8 @@
 
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import Link from 'next/link';
-import { createClient } from '@/lib/supabase-client'; // your Supabase client
+import React, { useState, useEffect, useCallback } from 'react';
+import { createClient } from '@/lib/supabase-client';
 import type { Company, CompanyStatus } from '@/lib/supabase-types';
 import { STATUS_LABELS, STATUS_COLORS } from '@/lib/supabase-types';
 
@@ -13,14 +12,10 @@ const supabase = createClient();
 
 const STATUS_OPTIONS: CompanyStatus[] = ['client', 'former_client', 'prospect', 'high_value', 'acquired', 'dni', 'not_relevant'];
 
-// Badge component for status
 function StatusBadge({ status }: { status: CompanyStatus }) {
   const color = STATUS_COLORS[status];
   return (
-    <span className="badge" style={{
-      background: `${color}14`,
-      color: color,
-    }}>
+    <span className="badge" style={{ background: `${color}14`, color: color }}>
       {STATUS_LABELS[status]}
     </span>
   );
@@ -38,40 +33,28 @@ export default function CompaniesPage() {
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 50;
 
-  // Fetch companies with aggregates via company_360 view or manual join
   const fetchCompanies = useCallback(async () => {
     setLoading(true);
+
     let query = supabase
       .from('companies')
-      .select(`
-        *,
-        contacts:contacts(count),
-        deals:deals(count)
-      `, { count: 'exact' });
+      .select('*', { count: 'exact' });
 
-    if (statusFilter) {
-      query = query.eq('status', statusFilter);
-    }
-    if (regionFilter) {
-      query = query.eq('region', regionFilter);
-    }
-    if (search) {
-      query = query.or(`name.ilike.%${search}%,url.ilike.%${search}%`);
-    }
+    if (statusFilter) query = query.eq('status', statusFilter);
+    if (regionFilter) query = query.eq('region', regionFilter);
+    if (search) query = query.or(`name.ilike.%${search}%,url.ilike.%${search}%`);
 
     query = query.order(sortField, { ascending: sortDir === 'asc' });
     query = query.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
     const { data, error } = await query;
-    if (!error && data) {
-      setCompanies(data);
-    }
+    if (error) console.error('Companies fetch error:', error);
+    if (data) setCompanies(data);
     setLoading(false);
   }, [statusFilter, regionFilter, search, sortField, sortDir, page]);
 
   useEffect(() => { fetchCompanies(); }, [fetchCompanies]);
 
-  // Column sort handler
   const handleSort = (field: string) => {
     if (sortField === field) {
       setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -86,7 +69,6 @@ export default function CompaniesPage() {
     return sortDir === 'asc' ? ' ↑' : ' ↓';
   };
 
-  // Selection
   const toggleSelect = (id: string) => {
     setSelected(prev => {
       const next = new Set(prev);
@@ -103,7 +85,6 @@ export default function CompaniesPage() {
     }
   };
 
-  // Bulk status change
   const bulkChangeStatus = async (newStatus: CompanyStatus) => {
     if (selected.size === 0) return;
     const ids = Array.from(selected);
@@ -127,7 +108,6 @@ export default function CompaniesPage() {
 
       {/* Filters */}
       <div className="filters-row" style={{ marginBottom: 'var(--space-5)' }}>
-        {/* Search */}
         <div style={{ flex: '1 1 300px', maxWidth: 400 }}>
           <input
             className="input"
@@ -137,7 +117,6 @@ export default function CompaniesPage() {
           />
         </div>
 
-        {/* Status filter */}
         <select
           className="input select"
           style={{ width: 200 }}
@@ -150,7 +129,6 @@ export default function CompaniesPage() {
           ))}
         </select>
 
-        {/* Region */}
         <select
           className="input select"
           style={{ width: 180 }}
@@ -164,7 +142,6 @@ export default function CompaniesPage() {
           <option value="LATAM">LATAM</option>
         </select>
 
-        {/* Bulk actions */}
         {selected.size > 0 && (
           <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center', marginLeft: 'auto' }}>
             <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--accent)' }}>
@@ -215,14 +192,12 @@ export default function CompaniesPage() {
                 <th onClick={() => handleSort('conference_count')} style={{ cursor: 'pointer', userSelect: 'none', textAlign: 'right' }}>
                   Conferences{sortArrow('conference_count')}
                 </th>
-                <th style={{ textAlign: 'right' }}>Contacts</th>
-                <th style={{ textAlign: 'right' }}>Deals</th>
                 <th>Location</th>
               </tr>
             </thead>
             <tbody>
               {companies.map(company => (
-                <tr key={company.id} onClick={() => window.location.href = `/companies/${company.id}`}>
+                <tr key={company.id} onClick={() => window.location.href = `/companies/${company.id}`} style={{ cursor: 'pointer' }}>
                   <td onClick={e => e.stopPropagation()}>
                     <input
                       type="checkbox"
@@ -253,12 +228,6 @@ export default function CompaniesPage() {
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                     {company.conference_count || 0}
                   </td>
-                  <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                    {company.contacts?.[0]?.count ?? '—'}
-                  </td>
-                  <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                    {company.deals?.[0]?.count ?? '—'}
-                  </td>
                   <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
                     {[company.city, company.state].filter(Boolean).join(', ') || company.country || '—'}
                   </td>
@@ -266,7 +235,7 @@ export default function CompaniesPage() {
               ))}
               {!loading && companies.length === 0 && (
                 <tr>
-                  <td colSpan={9} style={{ textAlign: 'center', padding: 'var(--space-10)', color: 'var(--text-tertiary)' }}>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: 'var(--space-10)', color: 'var(--text-tertiary)' }}>
                     No companies match your filters.
                   </td>
                 </tr>
