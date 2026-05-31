@@ -1,6 +1,4 @@
 // src/app/contacts/page.tsx
-// Contact List — filterable table with clickable rows → /contacts/[id]
-
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -16,6 +14,7 @@ const WARMTH_OPTIONS: ContactWarmth[] = ['hot', 'warm', 'cool', 'cold', 'dni'];
 
 export default function ContactsPage() {
   const [contacts, setContacts] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [personaFilter, setPersonaFilter] = useState('');
@@ -30,7 +29,7 @@ export default function ContactsPage() {
     setLoading(true);
     let query = supabase
       .from('contacts')
-      .select('*, company:companies(id, name, status)')
+      .select('*, company:companies(id, name, status)', { count: 'exact' })
       .order(sortField, { ascending: sortDir === 'asc' })
       .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
@@ -40,8 +39,10 @@ export default function ContactsPage() {
       query = query.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%`);
     }
 
-    const { data, error } = await query;
-    if (!error && data) setContacts(data);
+    const { data, error, count } = await query;
+    if (error) console.error('Contacts fetch error:', error);
+    if (data) setContacts(data);
+    if (count !== null) setTotal(count);
     setLoading(false);
   }, [search, personaFilter, warmthFilter, sortField, sortDir, page]);
 
@@ -58,7 +59,7 @@ export default function ContactsPage() {
     <div>
       <div style={{ marginBottom: 'var(--space-6)' }}>
         <h1 className="page-title">Contacts</h1>
-        <p className="page-subtitle">{loading ? 'Loading…' : `${contacts.length} contacts`}</p>
+        <p className="page-subtitle">{loading ? 'Loading…' : `${total.toLocaleString()} contacts`}</p>
       </div>
 
       <div className="filters-row" style={{ marginBottom: 'var(--space-5)' }}>
@@ -143,7 +144,7 @@ export default function ContactsPage() {
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'var(--space-5)' }}>
         <button className="btn btn-secondary btn-sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>← Previous</button>
-        <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Page {page + 1}</span>
+        <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Page {page + 1} · {total.toLocaleString()} total</span>
         <button className="btn btn-secondary btn-sm" disabled={contacts.length < PAGE_SIZE} onClick={() => setPage(p => p + 1)}>Next →</button>
       </div>
     </div>
