@@ -677,18 +677,14 @@ export default function DispatchPage() {
                   <summary style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', cursor: 'pointer' }}>More variables</summary>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)', marginTop: 'var(--space-3)' }}>
                     {[
-                      ['{ATTENDEES}', 'Confirmed attendees', '- CISO, Company', true],
-                      ['{STATS}', 'Past stats', '23 CISOs from JPMorgan…', true],
-                      ['{PROOF}', 'Proof points', '20/20 briefings completed…', true],
-                      ['{CITIES}', 'Cities remaining', '- Chicago, Oct 20', true],
-                    ].map(([key, label, placeholder, multi]) => (
+                      ['{ATTENDEES}', 'Confirmed attendees', '- CISO, Company'],
+                      ['{STATS}', 'Past stats', '23 CISOs from JPMorgan…'],
+                      ['{PROOF}', 'Proof points', '20/20 briefings completed…'],
+                      ['{CITIES}', 'Cities remaining', '- Chicago, Oct 20'],
+                    ].map(([key, label, placeholder]) => (
                       <div key={key}>
                         <label style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 'var(--space-1)' }}>{label}</label>
-                        {multi ? (
-                          <textarea className="input" rows={3} value={vars[key as string]} onChange={e => setVars(p => ({ ...p, [key as string]: e.target.value }))} placeholder={placeholder as string} style={{ resize: 'vertical' }} />
-                        ) : (
-                          <input className="input" value={vars[key as string]} onChange={e => setVars(p => ({ ...p, [key as string]: e.target.value }))} placeholder={placeholder as string} />
-                        )}
+                        <textarea className="input" rows={3} value={vars[key as string]} onChange={e => setVars(p => ({ ...p, [key as string]: e.target.value }))} placeholder={placeholder as string} style={{ resize: 'vertical' }} />
                       </div>
                     ))}
                   </div>
