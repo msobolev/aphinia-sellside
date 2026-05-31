@@ -31,6 +31,8 @@ export default function CompaniesPage() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(0);
+  const [total, setTotal] = useState(0);
+
   const PAGE_SIZE = 50;
 
   const fetchCompanies = useCallback(async () => {
@@ -47,9 +49,11 @@ export default function CompaniesPage() {
     query = query.order(sortField, { ascending: sortDir === 'asc' });
     query = query.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
-    const { data, error } = await query;
+    const { data, error, count } = await query;
+
     if (error) console.error('Companies fetch error:', error);
     if (data) setCompanies(data);
+    if (count !== null) setTotal(count);
     setLoading(false);
   }, [statusFilter, regionFilter, search, sortField, sortDir, page]);
 
@@ -100,7 +104,7 @@ export default function CompaniesPage() {
         <div>
           <h1 className="page-title">Companies</h1>
           <p className="page-subtitle">
-            {loading ? 'Loading…' : `${companies.length} companies`}
+            {loading ? 'Loading…' : `${total.toLocaleString()} companies`}
             {statusFilter && ` · ${STATUS_LABELS[statusFilter]}`}
           </p>
         </div>
