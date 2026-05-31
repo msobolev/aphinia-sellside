@@ -1,6 +1,4 @@
 // src/app/dispatch/page.tsx
-// Dispatch: Search contacts → Select → Pick template → Fill variables → Create Gmail drafts
-
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -9,9 +7,8 @@ import { WARMTH_LABELS, WARMTH_COLORS, PERSONA_LABELS } from '@/lib/supabase-typ
 
 const supabase = createClient();
 
-// ═══ SELLSIDE TEMPLATES (synced with Netlify Sellside Engine) ═══
+// ═══ TEMPLATES ═══
 const TEMPLATES = [
-  // DINNER COLD
   { id: 'dc-init-city', track: 'Dinner Cold', name: 'Initial outreach (standalone)',
     subj: '{CITY} CISO dinner - {DS}',
     body: `Hi {FirstName},
@@ -76,7 +73,6 @@ The format: 3-hour private dinner. No slides, no pitches. Your team sits at the 
 Misha Sobolev
 Aphinia` },
 
-  // DINNER WARM
   { id: 'dw-reengage', track: 'Dinner Warm', name: 'Re-engage prior sponsor',
     subj: '{CITY} dinner - {DS}',
     body: `Hi {FirstName},
@@ -105,7 +101,6 @@ Want to pick a few cities? I can send the deck with attendee profiles for each.
 Misha Sobolev
 Aphinia` },
 
-  // DINNER FOLLOW-UP
   { id: 'df-nudge', track: 'Dinner Follow-up', name: 'Post-deck nudge',
     subj: '{FirstName} / the deck',
     body: `Hi {FirstName},
@@ -128,7 +123,6 @@ No pressure either way. Just want to make sure you have the option before it's g
 Misha Sobolev
 Aphinia` },
 
-  // DINNER POST-EVENT
   { id: 'dp-thankyou', track: 'Dinner Post-event', name: 'Sponsor thank you + upsell',
     subj: '{FirstName} / thank you',
     body: `Hi {FirstName},
@@ -152,7 +146,6 @@ Let me know what makes sense for {Company}.
 Misha Sobolev
 Aphinia` },
 
-  // BRIEFING COLD
   { id: 'bc-init', track: 'Briefing Cold', name: 'Initial outreach',
     subj: '{Company} + Aphinia CISOs',
     body: `Hi {FirstName},
@@ -187,7 +180,6 @@ If this is relevant for {Company}, I can walk you through the targeting and proc
 Misha Sobolev
 Aphinia` },
 
-  // BRIEFING WARM
   { id: 'bw-renewal', track: 'Briefing Warm', name: 'Renewal outreach',
     subj: '{Company} briefings — next round',
     body: `Hi {FirstName},
@@ -203,7 +195,6 @@ Let me know.
 Misha Sobolev
 Aphinia` },
 
-  // BRIEFING FOLLOW-UP
   { id: 'bf-nudge', track: 'Briefing Follow-up', name: 'Post-proposal nudge',
     subj: '{FirstName} / briefing program',
     body: `Hi {FirstName},
@@ -215,7 +206,6 @@ If budget timing is the issue, we can structure it across quarters. The CISOs ar
 Misha Sobolev
 Aphinia` },
 
-  // BRIEFING POST
   { id: 'bp-results', track: 'Briefing Post', name: 'Results + upsell',
     subj: '{Company} briefing results',
     body: `Hi {FirstName},
@@ -263,21 +253,41 @@ function mergeTemplate(tpl: typeof TEMPLATES[0], contact: any, vars: Record<stri
   return { subj, body };
 }
 
-type Step = 'search' | 'template' | 'preview';
+function daysUntil(dateStr: string) {
+  return Math.ceil((new Date(dateStr + 'T12:00:00').getTime() - Date.now()) / 86400000);
+}
+
+function daysSince(dateStr: string | null) {
+  if (!dateStr) return null;
+  return Math.floor((Date.now() - new Date(dateStr + 'T12:00:00').getTime()) / 86400000);
+}
+
+function urgencyLabel(days: number): { label: string; color: string; bg: string } {
+  if (days <= 30) return { label: 'Critical', color: '#DC2626', bg: '#FEF2F2' };
+  if (days <= 60) return { label: 'Urgent', color: '#D97706', bg: '#FFFBEB' };
+  return { label: 'Watch', color: '#16A34A', bg: '#F0FDF4' };
+}
+
+function suggestTemplate(deal: any): typeof TEMPLATES[0] {
+  const daysSinceSent = daysSince(deal.sent_date);
+  if (!deal.sent_date) return TEMPLATES.find(t => t.id === 'dc-init-city')!;
+  if (daysSinceSent && daysSinceSent > 7) return TEMPLATES.find(t => t.id === 'df-nudge')!;
+  return TEMPLATES.find(t => t.id === 'df-decision')!;
+}
+
+type Step = 'queue' | 'search' | 'template' | 'preview';
 
 export default function DispatchPage() {
-  const [step, setStep] = useState<Step>('search');
-
-  // Search state
+  const [step, setStep] = useState<Step>('queue');
   const [contacts, setContacts] = useState<any[]>([]);
+  const [priorityDeals, setPriorityDeals] = useState<any[]>([]);
+  const [loadingQueue, setLoadingQueue] = useState(true);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [personaFilter, setPersonaFilter] = useState('');
   const [warmthFilter, setWarmthFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [selected, setSelected] = useState<Record<string, any>>({}); // keyed by contact id
-
-  // Template state
+  const [selected, setSelected] = useState<Record<string, any>>({});
   const [tplId, setTplId] = useState('');
   const [trackFilter, setTrackFilter] = useState('');
   const [vars, setVars] = useState<Record<string, string>>({
@@ -286,8 +296,6 @@ export default function DispatchPage() {
     '{TOPIC}': '', '{SOLUTION}': '', '{TARGET}': '', '{PROOF}': '',
     '{COMPETITORS}': '', '{CITIES}': '', '{DECK}': '',
   });
-
-  // Draft state
   const [drafting, setDrafting] = useState(false);
   const [draftResult, setDraftResult] = useState<any>(null);
   const [copied, setCopied] = useState<string | null>(null);
@@ -295,7 +303,34 @@ export default function DispatchPage() {
   const selectedCount = Object.keys(selected).length;
   const tpl = TEMPLATES.find(t => t.id === tplId);
 
-  // Fetch contacts from Supabase
+  // ── Load priority queue ──
+  useEffect(() => {
+    async function loadQueue() {
+      setLoadingQueue(true);
+      const { data } = await supabase
+        .from('deals')
+        .select('*, companies(id, name), contacts(id, first_name, last_name, email, title), events(id, name, event_date, city)')
+        .eq('status', 'prop_sent')
+        .order('created_at', { ascending: true });
+
+      if (data) {
+        const enriched = data
+          .filter((d: any) => d.events?.event_date)
+          .map((d: any) => ({
+            ...d,
+            days_until_event: daysUntil(d.events.event_date),
+            days_since_sent: daysSince(d.sent_date),
+            suggested_template: suggestTemplate(d),
+          }))
+          .sort((a: any, b: any) => a.days_until_event - b.days_until_event);
+        setPriorityDeals(enriched);
+      }
+      setLoadingQueue(false);
+    }
+    loadQueue();
+  }, []);
+
+  // ── Load contacts for search tab ──
   const fetchContacts = useCallback(async () => {
     setLoading(true);
     let query = supabase
@@ -303,27 +338,19 @@ export default function DispatchPage() {
       .select('*, company:companies(id, name, status)')
       .order('last_name', { ascending: true })
       .limit(100);
-
     if (personaFilter) query = query.eq('persona', personaFilter);
     if (warmthFilter) query = query.eq('warmth', warmthFilter);
-    if (statusFilter) query = query.eq('company.status', statusFilter);
-    if (search) {
-      query = query.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%`);
-    }
-
+    if (search) query = query.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%`);
     const { data } = await query;
     if (data) {
-      // Filter out contacts without email or where company status filter didn't match
       let filtered = data.filter((c: any) => c.email);
-      if (statusFilter) {
-        filtered = filtered.filter((c: any) => c.company?.status === statusFilter);
-      }
+      if (statusFilter) filtered = filtered.filter((c: any) => c.company?.status === statusFilter);
       setContacts(filtered);
     }
     setLoading(false);
   }, [search, personaFilter, warmthFilter, statusFilter]);
 
-  useEffect(() => { fetchContacts(); }, [fetchContacts]);
+  useEffect(() => { if (step === 'search') fetchContacts(); }, [fetchContacts, step]);
 
   const toggleSelect = (c: any) => {
     setSelected(prev => {
@@ -334,28 +361,33 @@ export default function DispatchPage() {
     });
   };
 
-  const selectAllVisible = () => {
-    const n = { ...selected };
-    contacts.forEach(c => { n[c.id] = c; });
-    setSelected(n);
+  const selectFromDeal = (deal: any) => {
+    if (!deal.contacts) return;
+    const contact = { ...deal.contacts, company: deal.companies };
+    setSelected({ [contact.id]: contact });
+    setTplId(deal.suggested_template.id);
+    // Pre-fill city and date vars
+    if (deal.events?.city) setVars(v => ({ ...v, '{CITY}': deal.events.city }));
+    if (deal.events?.event_date) {
+      const d = new Date(deal.events.event_date + 'T12:00:00');
+      const display = d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+      const short = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      setVars(v => ({ ...v, '{DATE}': display, '{DS}': short }));
+    }
+    setStep('template');
   };
 
-  const filteredTemplates = trackFilter
-    ? TEMPLATES.filter(t => t.track === trackFilter)
-    : TEMPLATES;
-
+  const filteredTemplates = trackFilter ? TEMPLATES.filter(t => t.track === trackFilter) : TEMPLATES;
   const tracks = [...new Set(TEMPLATES.map(t => t.track))];
 
   const createDrafts = async () => {
     if (!tpl) return;
     setDrafting(true);
     setDraftResult(null);
-
     const drafts = Object.values(selected).map(contact => {
       const merged = mergeTemplate(tpl, contact, vars);
       return { to: contact.email, subject: merged.subj, body: merged.body };
     });
-
     try {
       const res = await fetch('/api/draft-emails', {
         method: 'POST',
@@ -378,70 +410,159 @@ export default function DispatchPage() {
 
   return (
     <div>
-      {/* Header */}
       <div style={{ marginBottom: 'var(--space-6)' }}>
         <h1 className="page-title">Dispatch</h1>
-        <p className="page-subtitle">Search → Select → Template → Gmail drafts</p>
+        <p className="page-subtitle">Priority queue → Select → Template → Gmail drafts</p>
       </div>
 
       {/* Step tabs */}
-      <div style={{ display: 'flex', gap: 0, marginBottom: 'var(--space-5)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', overflow: 'hidden', maxWidth: 560 }}>
-        <button onClick={() => setStep('search')}
-          style={{ flex: 1, padding: '10px 16px', border: 'none', fontSize: 'var(--text-sm)', fontWeight: step === 'search' ? 700 : 500, background: step === 'search' ? 'var(--accent-soft)' : 'var(--bg-card)', color: step === 'search' ? 'var(--accent-text)' : 'var(--text-secondary)', cursor: 'pointer', fontFamily: 'inherit' }}>
-          ① Search & Select
-        </button>
-        <button onClick={() => selectedCount > 0 && setStep('template')}
-          style={{ flex: 1, padding: '10px 16px', border: 'none', borderLeft: '1px solid var(--border-default)', fontSize: 'var(--text-sm)', fontWeight: step === 'template' ? 700 : 500, background: step === 'template' ? 'var(--accent-soft)' : 'var(--bg-card)', color: step === 'template' ? 'var(--accent-text)' : 'var(--text-secondary)', cursor: selectedCount > 0 ? 'pointer' : 'not-allowed', opacity: selectedCount > 0 ? 1 : 0.4, fontFamily: 'inherit' }}>
-          ② Template
-        </button>
-        <button onClick={() => selectedCount > 0 && tplId && setStep('preview')}
-          style={{ flex: 1, padding: '10px 16px', border: 'none', borderLeft: '1px solid var(--border-default)', fontSize: 'var(--text-sm)', fontWeight: step === 'preview' ? 700 : 500, background: step === 'preview' ? 'var(--accent-soft)' : 'var(--bg-card)', color: step === 'preview' ? 'var(--accent-text)' : 'var(--text-secondary)', cursor: selectedCount > 0 && tplId ? 'pointer' : 'not-allowed', opacity: selectedCount > 0 && tplId ? 1 : 0.4, fontFamily: 'inherit' }}>
-          ③ Preview & Draft
-        </button>
+      <div style={{ display: 'flex', gap: 0, marginBottom: 'var(--space-5)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', overflow: 'hidden', maxWidth: 700 }}>
+        {[
+          { key: 'queue', label: '① Priority Queue', always: true },
+          { key: 'search', label: '② Search & Select', always: true },
+          { key: 'template', label: '③ Template', always: false },
+          { key: 'preview', label: '④ Preview & Draft', always: false },
+        ].map((s, i) => {
+          const enabled = s.always || selectedCount > 0;
+          const active = step === s.key;
+          return (
+            <button key={s.key} onClick={() => enabled && setStep(s.key as Step)}
+              style={{
+                flex: 1, padding: '10px 12px', border: 'none',
+                borderLeft: i > 0 ? '1px solid var(--border-default)' : 'none',
+                fontSize: 'var(--text-sm)', fontWeight: active ? 700 : 500,
+                background: active ? 'var(--accent-soft)' : 'var(--bg-card)',
+                color: active ? 'var(--accent-text)' : 'var(--text-secondary)',
+                cursor: enabled ? 'pointer' : 'not-allowed',
+                opacity: enabled ? 1 : 0.4, fontFamily: 'inherit',
+              }}>
+              {s.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* Status bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', padding: 'var(--space-3) var(--space-4)', background: 'var(--bg-sidebar)', borderRadius: 'var(--radius-md)', marginBottom: 'var(--space-5)', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
         <span><strong style={{ color: 'var(--accent)' }}>{selectedCount}</strong> contacts selected</span>
-        {tpl && <span>• Template: <strong>{tpl.name}</strong></span>}
+        {tpl && <span>· Template: <strong>{tpl.name}</strong></span>}
         {selectedCount > 0 && (
-          <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }}
-            onClick={() => setSelected({})}>
-            Clear all
-          </button>
+          <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} onClick={() => setSelected({})}>Clear all</button>
         )}
       </div>
 
-      {/* ═══ STEP 1: SEARCH ═══ */}
+      {/* ═══ STEP: PRIORITY QUEUE ═══ */}
+      {step === 'queue' && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', margin: 0 }}>
+              Open proposals ranked by event proximity. Click any row to pre-load contact + template.
+            </p>
+          </div>
+
+          {loadingQueue ? (
+            <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-tertiary)' }}>Loading…</div>
+          ) : priorityDeals.length === 0 ? (
+            <div className="card" style={{ textAlign: 'center', padding: 'var(--space-10)' }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
+              <div style={{ fontWeight: 600 }}>No open proposals</div>
+              <div style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)', marginTop: 4 }}>All proposals are closed or signed.</div>
+            </div>
+          ) : (
+            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Urgency</th>
+                    <th>Company</th>
+                    <th>Contact</th>
+                    <th>Event</th>
+                    <th style={{ textAlign: 'right' }}>Days Out</th>
+                    <th style={{ textAlign: 'right' }}>Amount</th>
+                    <th>Prop Sent</th>
+                    <th>Suggested Action</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {priorityDeals.map((deal: any) => {
+                    const urgency = urgencyLabel(deal.days_until_event);
+                    const sentAgo = deal.days_since_sent;
+                    return (
+                      <tr key={deal.id} style={{ cursor: 'pointer' }} onClick={() => selectFromDeal(deal)}>
+                        <td>
+                          <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 4, fontSize: 'var(--text-xs)', fontWeight: 700, background: urgency.bg, color: urgency.color }}>
+                            {urgency.label}
+                          </span>
+                        </td>
+                        <td style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>{deal.companies?.name || '—'}</td>
+                        <td style={{ fontSize: 'var(--text-sm)' }}>
+                          {deal.contacts ? `${deal.contacts.first_name} ${deal.contacts.last_name}` : '—'}
+                          {deal.contacts?.email && (
+                            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>{deal.contacts.email}</div>
+                          )}
+                        </td>
+                        <td style={{ fontSize: 'var(--text-sm)' }}>
+                          {deal.events?.city || '—'}
+                          {deal.events?.event_date && (
+                            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+                              {new Date(deal.events.event_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: urgency.color }}>
+                          {deal.days_until_event}d
+                        </td>
+                        <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+                          ${(deal.amount || 0).toLocaleString()}
+                        </td>
+                        <td style={{ fontSize: 'var(--text-xs)', color: sentAgo && sentAgo > 14 ? 'var(--red)' : 'var(--text-secondary)' }}>
+                          {sentAgo != null ? `${sentAgo}d ago` : <span style={{ color: 'var(--text-tertiary)' }}>Not sent</span>}
+                        </td>
+                        <td style={{ fontSize: 'var(--text-xs)' }}>
+                          <span style={{ background: TRACK_BGS[deal.suggested_template.track], color: TRACK_COLORS[deal.suggested_template.track], padding: '2px 6px', borderRadius: 4, fontWeight: 500 }}>
+                            {deal.suggested_template.name}
+                          </span>
+                        </td>
+                        <td>
+                          <button className="btn btn-primary btn-sm" onClick={(e) => { e.stopPropagation(); selectFromDeal(deal); }}>
+                            Draft →
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ═══ STEP: SEARCH ═══ */}
       {step === 'search' && (
         <div>
           <div className="filters-row" style={{ marginBottom: 'var(--space-4)' }}>
             <div style={{ flex: '1 1 300px', maxWidth: 400 }}>
-              <input className="input" placeholder="Search by name or email…"
-                value={search} onChange={e => setSearch(e.target.value)} />
+              <input className="input" placeholder="Search by name or email…" value={search} onChange={e => setSearch(e.target.value)} />
             </div>
-            <select className="input select" style={{ width: 180 }}
-              value={personaFilter} onChange={e => setPersonaFilter(e.target.value)}>
+            <select className="input select" style={{ width: 180 }} value={personaFilter} onChange={e => setPersonaFilter(e.target.value)}>
               <option value="">All Personas</option>
               {['cmo_cro', 'field_marketing', 'demand_gen', 'events', 'channel_alliance', 'director_marketing', 'marketing_other', 'regional_sales'].map(p =>
                 <option key={p} value={p}>{PERSONA_LABELS[p]}</option>
               )}
             </select>
-            <select className="input select" style={{ width: 140 }}
-              value={warmthFilter} onChange={e => setWarmthFilter(e.target.value)}>
+            <select className="input select" style={{ width: 140 }} value={warmthFilter} onChange={e => setWarmthFilter(e.target.value)}>
               <option value="">All Warmth</option>
-              {['hot', 'warm', 'cool', 'cold'].map(w =>
-                <option key={w} value={w}>{WARMTH_LABELS[w]}</option>
-              )}
+              {['hot', 'warm', 'cool', 'cold'].map(w => <option key={w} value={w}>{WARMTH_LABELS[w]}</option>)}
             </select>
-            <select className="input select" style={{ width: 160 }}
-              value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+            <select className="input select" style={{ width: 160 }} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
               <option value="">All Companies</option>
               <option value="client">Client</option>
               <option value="prospect">Prospect</option>
               <option value="high_value">High Value</option>
             </select>
-            <button className="btn btn-secondary btn-sm" onClick={selectAllVisible}>
+            <button className="btn btn-secondary btn-sm" onClick={() => { const n = { ...selected }; contacts.forEach(c => { n[c.id] = c; }); setSelected(n); }}>
               Select all visible
             </button>
           </div>
@@ -490,15 +611,13 @@ export default function DispatchPage() {
 
           {selectedCount > 0 && (
             <div style={{ marginTop: 'var(--space-5)', display: 'flex', justifyContent: 'flex-end' }}>
-              <button className="btn btn-primary" onClick={() => setStep('template')}>
-                Next: Choose template →
-              </button>
+              <button className="btn btn-primary" onClick={() => setStep('template')}>Next: Choose template →</button>
             </div>
           )}
         </div>
       )}
 
-      {/* ═══ STEP 2: TEMPLATE ═══ */}
+      {/* ═══ STEP: TEMPLATE ═══ */}
       {step === 'template' && (
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-5)', flexWrap: 'wrap' }}>
@@ -520,8 +639,7 @@ export default function DispatchPage() {
                   cursor: 'pointer', padding: 'var(--space-4)',
                   borderColor: tplId === t.id ? 'var(--accent)' : 'var(--border-default)',
                   borderWidth: tplId === t.id ? 2 : 1,
-                  borderLeftWidth: 3,
-                  borderLeftColor: TRACK_COLORS[t.track],
+                  borderLeftWidth: 3, borderLeftColor: TRACK_COLORS[t.track],
                   boxShadow: tplId === t.id ? 'var(--shadow-md)' : 'var(--shadow-sm)',
                 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-2)' }}>
@@ -536,140 +654,88 @@ export default function DispatchPage() {
           {tplId && (
             <>
               <h2 style={{ fontSize: 'var(--text-lg)', fontWeight: 600, marginBottom: 'var(--space-3)' }}>Campaign variables</h2>
-              <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginBottom: 'var(--space-4)' }}>
-                Fill in the variables for this template. Leave blank for any that aren't needed — they'll show as placeholder tags.
-              </p>
               <div className="card" style={{ padding: 'var(--space-5)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 'var(--space-4)' }}>
-                  <div>
-                    <label style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 'var(--space-1)' }}>City</label>
-                    <input className="input" value={vars['{CITY}']} onChange={e => setVars(p => ({ ...p, '{CITY}': e.target.value }))} placeholder="e.g. Chicago" />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 'var(--space-1)' }}>Event date (display)</label>
-                    <input className="input" value={vars['{DATE}']} onChange={e => setVars(p => ({ ...p, '{DATE}': e.target.value }))} placeholder="e.g. Tuesday, September 15, 2026" />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 'var(--space-1)' }}>Short date</label>
-                    <input className="input" value={vars['{DS}']} onChange={e => setVars(p => ({ ...p, '{DS}': e.target.value }))} placeholder="e.g. Sep 15" />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 'var(--space-1)' }}>Conference</label>
-                    <input className="input" value={vars['{CONF}']} onChange={e => setVars(p => ({ ...p, '{CONF}': e.target.value }))} placeholder="e.g. RSA Conference" />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 'var(--space-1)' }}>Price</label>
-                    <input className="input" value={vars['{PRICE}']} onChange={e => setVars(p => ({ ...p, '{PRICE}': e.target.value }))} placeholder="$15,000" />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 'var(--space-1)' }}>Capacity</label>
-                    <input className="input" value={vars['{CAP}']} onChange={e => setVars(p => ({ ...p, '{CAP}': e.target.value }))} placeholder="15" />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 'var(--space-1)' }}>Solution area</label>
-                    <input className="input" value={vars['{SOLUTION}']} onChange={e => setVars(p => ({ ...p, '{SOLUTION}': e.target.value }))} placeholder="e.g. cloud security" />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 'var(--space-1)' }}>Target CISO profile</label>
-                    <input className="input" value={vars['{TARGET}']} onChange={e => setVars(p => ({ ...p, '{TARGET}': e.target.value }))} placeholder="e.g. enterprise CISOs in finserv" />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 'var(--space-1)' }}>Package size</label>
-                    <input className="input" value={vars['{PKG}']} onChange={e => setVars(p => ({ ...p, '{PKG}': e.target.value }))} placeholder="20" />
-                  </div>
+                  {[
+                    ['{CITY}', 'City', 'e.g. Chicago'],
+                    ['{DATE}', 'Event date (display)', 'e.g. Tuesday, October 7, 2026'],
+                    ['{DS}', 'Short date', 'e.g. Oct 7'],
+                    ['{CONF}', 'Conference', 'e.g. RSA Conference'],
+                    ['{PRICE}', 'Price', '$15,000'],
+                    ['{CAP}', 'Capacity', '15'],
+                    ['{SOLUTION}', 'Solution area', 'e.g. cloud security'],
+                    ['{TARGET}', 'Target CISO profile', 'e.g. enterprise CISOs in finserv'],
+                    ['{PKG}', 'Package size', '20'],
+                  ].map(([key, label, placeholder]) => (
+                    <div key={key}>
+                      <label style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 'var(--space-1)' }}>{label}</label>
+                      <input className="input" value={vars[key]} onChange={e => setVars(p => ({ ...p, [key]: e.target.value }))} placeholder={placeholder} />
+                    </div>
+                  ))}
                 </div>
-
                 <details style={{ marginTop: 'var(--space-4)' }}>
                   <summary style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', cursor: 'pointer' }}>More variables</summary>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)', marginTop: 'var(--space-3)' }}>
-                    <div>
-                      <label style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 'var(--space-1)' }}>Confirmed attendees</label>
-                      <textarea className="input" rows={3} value={vars['{ATTENDEES}']} onChange={e => setVars(p => ({ ...p, '{ATTENDEES}': e.target.value }))} placeholder="- CISO, Company" style={{ resize: 'vertical' }} />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 'var(--space-1)' }}>Past stats</label>
-                      <textarea className="input" rows={3} value={vars['{STATS}']} onChange={e => setVars(p => ({ ...p, '{STATS}': e.target.value }))} placeholder="23 CISOs from JPMorgan, Walmart…" style={{ resize: 'vertical' }} />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 'var(--space-1)' }}>Proof points</label>
-                      <textarea className="input" rows={3} value={vars['{PROOF}']} onChange={e => setVars(p => ({ ...p, '{PROOF}': e.target.value }))} placeholder="20/20 briefings completed…" style={{ resize: 'vertical' }} />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 'var(--space-1)' }}>Competitor sponsors</label>
-                      <input className="input" value={vars['{COMPETITORS}']} onChange={e => setVars(p => ({ ...p, '{COMPETITORS}': e.target.value }))} placeholder="CrowdStrike, Palo Alto, Zscaler" />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 'var(--space-1)' }}>Cities remaining</label>
-                      <textarea className="input" rows={3} value={vars['{CITIES}']} onChange={e => setVars(p => ({ ...p, '{CITIES}': e.target.value }))} placeholder="- Chicago, Jun 10" style={{ resize: 'vertical' }} />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 'var(--space-1)' }}>Deck link</label>
-                      <input className="input" value={vars['{DECK}']} onChange={e => setVars(p => ({ ...p, '{DECK}': e.target.value }))} placeholder="https://..." />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 'var(--space-1)' }}>Topic</label>
-                      <input className="input" value={vars['{TOPIC}']} onChange={e => setVars(p => ({ ...p, '{TOPIC}': e.target.value }))} placeholder="e.g. AI governance" />
-                    </div>
+                    {[
+                      ['{ATTENDEES}', 'Confirmed attendees', '- CISO, Company', true],
+                      ['{STATS}', 'Past stats', '23 CISOs from JPMorgan…', true],
+                      ['{PROOF}', 'Proof points', '20/20 briefings completed…', true],
+                      ['{CITIES}', 'Cities remaining', '- Chicago, Oct 20', true],
+                    ].map(([key, label, placeholder, multi]) => (
+                      <div key={key}>
+                        <label style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 'var(--space-1)' }}>{label}</label>
+                        {multi ? (
+                          <textarea className="input" rows={3} value={vars[key as string]} onChange={e => setVars(p => ({ ...p, [key as string]: e.target.value }))} placeholder={placeholder as string} style={{ resize: 'vertical' }} />
+                        ) : (
+                          <input className="input" value={vars[key as string]} onChange={e => setVars(p => ({ ...p, [key as string]: e.target.value }))} placeholder={placeholder as string} />
+                        )}
+                      </div>
+                    ))}
                   </div>
                 </details>
               </div>
-
               <div style={{ marginTop: 'var(--space-5)', display: 'flex', justifyContent: 'space-between' }}>
-                <button className="btn btn-secondary" onClick={() => setStep('search')}>← Back to contacts</button>
-                <button className="btn btn-primary" onClick={() => setStep('preview')}>Preview {selectedCount} emails →</button>
+                <button className="btn btn-secondary" onClick={() => setStep('search')}>← Back</button>
+                <button className="btn btn-primary" onClick={() => setStep('preview')}>Preview {selectedCount} email{selectedCount !== 1 ? 's' : ''} →</button>
               </div>
             </>
           )}
         </div>
       )}
 
-      {/* ═══ STEP 3: PREVIEW & DRAFT ═══ */}
+      {/* ═══ STEP: PREVIEW ═══ */}
       {step === 'preview' && tpl && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-5)' }}>
             <h2 style={{ fontSize: 'var(--text-lg)', fontWeight: 600, margin: 0 }}>
               Preview — {selectedCount} email{selectedCount !== 1 ? 's' : ''}
             </h2>
-            <div style={{ display: 'flex', gap: 'var(--space-3)' }}>
-              <button className="btn btn-primary" onClick={createDrafts} disabled={drafting}
-                style={{ background: 'var(--green)', borderColor: 'var(--green)' }}>
-                {drafting ? 'Creating drafts…' : `✉ Create ${selectedCount} Gmail draft${selectedCount !== 1 ? 's' : ''}`}
-              </button>
-            </div>
+            <button className="btn btn-primary" onClick={createDrafts} disabled={drafting}
+              style={{ background: 'var(--green)', borderColor: 'var(--green)' }}>
+              {drafting ? 'Creating drafts…' : `✉ Create ${selectedCount} Gmail draft${selectedCount !== 1 ? 's' : ''}`}
+            </button>
           </div>
 
-          {/* Draft results */}
           {draftResult && (
             <div className="card" style={{
               marginBottom: 'var(--space-5)', padding: 'var(--space-4)',
-              background: draftResult.error ? 'var(--red-soft)' : 'var(--green-soft)',
+              background: draftResult.error ? '#FEF2F2' : '#F0FDF4',
               borderColor: draftResult.error ? 'var(--red)' : 'var(--green)',
             }}>
               {draftResult.error ? (
                 <span style={{ color: 'var(--red)', fontWeight: 600 }}>Error: {draftResult.error}</span>
               ) : (
-                <div>
-                  <span style={{ color: 'var(--green)', fontWeight: 600, fontSize: 'var(--text-base)' }}>
-                    ✓ {draftResult.successCount}/{draftResult.totalCount} drafts created in Gmail
-                  </span>
-                  {draftResult.results?.filter((r: any) => !r.success).map((r: any, i: number) => (
-                    <div key={i} style={{ marginTop: 'var(--space-2)', fontSize: 'var(--text-xs)', color: 'var(--red)' }}>
-                      Failed: {r.to} — {r.error}
-                    </div>
-                  ))}
-                </div>
+                <span style={{ color: 'var(--green)', fontWeight: 600 }}>
+                  ✓ {draftResult.successCount}/{draftResult.totalCount} drafts created in Gmail
+                </span>
               )}
             </div>
           )}
 
-          {/* Email previews */}
           {Object.values(selected).map((contact: any) => {
             const merged = mergeTemplate(tpl, contact, vars);
             return (
-              <div key={contact.id} className="card" style={{
-                padding: 'var(--space-4)', marginBottom: 'var(--space-3)',
-                borderLeftWidth: 3, borderLeftColor: TRACK_COLORS[tpl.track],
-              }}>
+              <div key={contact.id} className="card" style={{ padding: 'var(--space-4)', marginBottom: 'var(--space-3)', borderLeftWidth: 3, borderLeftColor: TRACK_COLORS[tpl.track] }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)' }}>
                   <div>
                     <span style={{ fontWeight: 700, fontSize: 'var(--text-sm)' }}>{contact.first_name} {contact.last_name}</span>
@@ -684,12 +750,7 @@ export default function DispatchPage() {
                 </div>
                 <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginBottom: 'var(--space-1)' }}>Subject:</div>
                 <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, fontFamily: 'var(--font-mono)', marginBottom: 'var(--space-3)' }}>{merged.subj}</div>
-                <div style={{
-                  fontSize: 'var(--text-xs)', whiteSpace: 'pre-wrap', lineHeight: 1.65,
-                  fontFamily: 'var(--font-mono)', background: 'var(--bg-sidebar)',
-                  padding: 'var(--space-4)', borderRadius: 'var(--radius-md)',
-                  maxHeight: 300, overflowY: 'auto',
-                }}>
+                <div style={{ fontSize: 'var(--text-xs)', whiteSpace: 'pre-wrap', lineHeight: 1.65, fontFamily: 'var(--font-mono)', background: 'var(--bg-sidebar)', padding: 'var(--space-4)', borderRadius: 'var(--radius-md)', maxHeight: 300, overflowY: 'auto' }}>
                   {merged.body}
                 </div>
               </div>
