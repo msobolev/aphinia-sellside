@@ -1,5 +1,4 @@
 // src/app/events/page.tsx
-// Event Inventory with Create/Edit modal (Step 7)
 'use client';
 
 import React, { useEffect, useState, useCallback } from 'react';
@@ -8,38 +7,32 @@ import { createClient } from '@/lib/supabase-client';
 interface EventRow {
   id: string;
   name: string;
-  date: string;
+  event_date: string;
   city: string;
   format: string;
   max_sponsors: number;
   price_per_slot: number;
   sponsor_model: string;
   revenue_target: number;
-  conference_id: string;
-  conferences: { name: string } | null;
+  revenue_booked: number;
+  conference_association: string | null;
   sponsor_count: number;
-}
-
-interface Conference {
-  id: string;
-  name: string;
 }
 
 const EMPTY_FORM = {
   name: '',
-  date: '',
+  event_date: '',
   city: '',
   format: 'dinner',
   max_sponsors: 2,
   price_per_slot: 15000,
   sponsor_model: 'co_sponsor',
   revenue_target: 30000,
-  conference_id: '',
+  conference_association: '',
 };
 
 export default function EventsPage() {
   const [events, setEvents] = useState<EventRow[]>([]);
-  const [conferences, setConferences] = useState<Conference[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'upcoming' | 'past' | 'all'>('upcoming');
   const [modalOpen, setModalOpen] = useState(false);
@@ -50,10 +43,9 @@ export default function EventsPage() {
   const supabase = createClient();
 
   const loadEvents = useCallback(async () => {
-    const [eventsRes, sponsorRes, confRes] = await Promise.all([
-      supabase.from('events').select('*, conferences(name)').order('date', { ascending: true }),
+    const [eventsRes, sponsorRes] = await Promise.all([
+      supabase.from('events').select('*').order('event_date', { ascending: true }),
       supabase.from('event_sponsors').select('event_id'),
-      supabase.from('conferences').select('id, name').order('name'),
     ]);
 
     const countMap: Record<string, number> = {};
@@ -67,7 +59,6 @@ export default function EventsPage() {
     })) as unknown as EventRow[];
 
     setEvents(enriched);
-    setConferences((confRes.data || []) as Conference[]);
     setLoading(false);
   }, [supabase]);
 
@@ -75,8 +66,8 @@ export default function EventsPage() {
 
   const today = new Date().toISOString().slice(0, 10);
   const filtered = events.filter(e => {
-    if (filter === 'upcoming') return e.date >= today;
-    if (filter === 'past') return e.date < today;
+    if (filter === 'upcoming') return e.event_date >= today;
+    if (filter === 'past') return e.event_date < today;
     return true;
   });
 
@@ -94,32 +85,32 @@ export default function EventsPage() {
     setEditingId(event.id);
     setForm({
       name: event.name || '',
-      date: event.date || '',
+      event_date: event.event_date || '',
       city: event.city || '',
       format: event.format || 'dinner',
       max_sponsors: event.max_sponsors || 2,
       price_per_slot: event.price_per_slot || 15000,
       sponsor_model: event.sponsor_model || 'co_sponsor',
       revenue_target: event.revenue_target || 30000,
-      conference_id: event.conference_id || '',
+      conference_association: event.conference_association || '',
     });
     setModalOpen(true);
   }
 
   async function handleSave() {
-    if (!form.name.trim() || !form.date) return;
+    if (!form.name.trim() || !form.event_date) return;
     setSaving(true);
 
     const payload = {
       name: form.name.trim(),
-      date: form.date,
+      event_date: form.event_date,
       city: form.city.trim(),
       format: form.format,
       max_sponsors: form.max_sponsors,
       price_per_slot: form.price_per_slot,
       sponsor_model: form.sponsor_model,
       revenue_target: form.revenue_target,
-      conference_id: form.conference_id || null,
+      conference_association: form.conference_association || null,
     };
 
     if (editingId) {
@@ -165,7 +156,6 @@ export default function EventsPage() {
         <button className="btn btn-primary" onClick={openCreate}>+ New Event</button>
       </div>
 
-      {/* Filter tabs */}
       <div style={{ display: 'flex', gap: 'var(--space-2)', marginBottom: 'var(--space-5)' }}>
         {(['upcoming', 'past', 'all'] as const).map(f => (
           <button
@@ -187,7 +177,7 @@ export default function EventsPage() {
               <div className="empty-state-icon">📅</div>
               <div className="empty-state-title">No events found</div>
               <div className="empty-state-text">
-                {filter === 'upcoming' ? 'No upcoming events. Create one to start selling inventory.' : 'No events match this filter.'}
+                {filter === 'upcoming' ? 'No upcoming events.' : 'No events match this filter.'}
               </div>
               <button className="btn btn-primary" style={{ marginTop: 'var(--space-4)' }} onClick={openCreate}>
                 + Create First Event
@@ -202,7 +192,7 @@ export default function EventsPage() {
             const sold = event.sponsor_count;
             const available = Math.max(0, max - sold);
             const pct = Math.min(100, Math.round((sold / max) * 100));
-            const isPast = event.date < today;
+            const isPast = event.event_date < today;
             const barColor = pct >= 100 ? 'var(--green)' : pct >= 60 ? 'var(--blue)' : pct >= 30 ? 'var(--yellow)' : 'var(--red)';
 
             return (
@@ -219,12 +209,12 @@ export default function EventsPage() {
                         {event.name}
                       </div>
                       <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', display: 'flex', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
-                        {event.date && (
-                          <span>{new Date(event.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                        {event.event_date && (
+                          <span>{new Date(event.event_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
                         )}
                         {event.city && <span>· {event.city}</span>}
                         {event.format && <span>· {event.format}</span>}
-                        {event.conferences?.name && <span>· {event.conferences.name}</span>}
+                        {event.conference_association && <span>· {event.conference_association}</span>}
                       </div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
@@ -267,7 +257,6 @@ export default function EventsPage() {
         </div>
       )}
 
-      {/* ── Create/Edit Modal ── */}
       {modalOpen && (
         <div className="modal-overlay" onClick={() => setModalOpen(false)}>
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 620 }}>
@@ -279,19 +268,16 @@ export default function EventsPage() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
                 <div className="form-group" style={{ gridColumn: '1 / -1' }}>
                   <label className="label">Event Name *</label>
-                  <input className="input" placeholder="e.g. California Dreaming" value={form.name} onChange={e => updateForm('name', e.target.value)} />
+                  <input className="input" placeholder="e.g. Dinner-Chicago-Oct_20_2026" value={form.name} onChange={e => updateForm('name', e.target.value)} />
                 </div>
-
                 <div className="form-group">
                   <label className="label">Date *</label>
-                  <input className="input" type="date" value={form.date} onChange={e => updateForm('date', e.target.value)} />
+                  <input className="input" type="date" value={form.event_date} onChange={e => updateForm('event_date', e.target.value)} />
                 </div>
-
                 <div className="form-group">
                   <label className="label">City</label>
-                  <input className="input" placeholder="e.g. San Francisco" value={form.city} onChange={e => updateForm('city', e.target.value)} />
+                  <input className="input" placeholder="e.g. Chicago" value={form.city} onChange={e => updateForm('city', e.target.value)} />
                 </div>
-
                 <div className="form-group">
                   <label className="label">Format</label>
                   <select className="select" value={form.format} onChange={e => updateForm('format', e.target.value)}>
@@ -299,61 +285,44 @@ export default function EventsPage() {
                     <option value="breakfast">Breakfast</option>
                     <option value="shark_tank">Shark Tank</option>
                     <option value="briefing">Briefing</option>
-                    <option value="roundtable">Roundtable</option>
                     <option value="other">Other</option>
                   </select>
                 </div>
-
                 <div className="form-group">
                   <label className="label">Sponsor Model</label>
                   <select className="select" value={form.sponsor_model} onChange={e => updateForm('sponsor_model', e.target.value)}>
                     <option value="co_sponsor">Co-Sponsor</option>
-                    <option value="exclusive">Exclusive</option>
+                    <option value="exclusive_only">Exclusive Only</option>
                     <option value="flexible">Flexible</option>
                   </select>
                 </div>
-
                 <div className="form-group">
                   <label className="label">Max Sponsors</label>
                   <input className="input" type="number" min="1" max="20" value={form.max_sponsors} onChange={e => updateForm('max_sponsors', parseInt(e.target.value) || 1)} />
                 </div>
-
                 <div className="form-group">
                   <label className="label">Price per Slot ($)</label>
                   <input className="input" type="number" min="0" step="1000" value={form.price_per_slot} onChange={e => updateForm('price_per_slot', parseInt(e.target.value) || 0)} />
                 </div>
-
                 <div className="form-group">
                   <label className="label">Revenue Target ($)</label>
                   <input className="input" type="number" min="0" step="1000" value={form.revenue_target} onChange={e => updateForm('revenue_target', parseInt(e.target.value) || 0)} />
                 </div>
-
                 <div className="form-group">
                   <label className="label">Conference (optional)</label>
-                  <select className="select" value={form.conference_id} onChange={e => updateForm('conference_id', e.target.value)}>
-                    <option value="">— Standalone —</option>
-                    {conferences.map(c => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                  </select>
+                  <input className="input" placeholder="e.g. Re:Invent" value={form.conference_association} onChange={e => updateForm('conference_association', e.target.value)} />
                 </div>
               </div>
             </div>
             <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
               <div>
                 {editingId && (
-                  <button className="btn" style={{ color: 'var(--red)' }} onClick={handleDelete}>
-                    Delete Event
-                  </button>
+                  <button className="btn" style={{ color: 'var(--red)' }} onClick={handleDelete}>Delete Event</button>
                 )}
               </div>
               <div style={{ display: 'flex', gap: 'var(--space-3)' }}>
                 <button className="btn btn-secondary" onClick={() => setModalOpen(false)}>Cancel</button>
-                <button
-                  className="btn btn-primary"
-                  onClick={handleSave}
-                  disabled={!form.name.trim() || !form.date || saving}
-                >
+                <button className="btn btn-primary" onClick={handleSave} disabled={!form.name.trim() || !form.event_date || saving}>
                   {saving ? 'Saving...' : editingId ? 'Save Changes' : 'Create Event'}
                 </button>
               </div>
