@@ -1,7 +1,7 @@
 // src/app/dispatch/page.tsx
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase-client';
 import { WARMTH_LABELS, WARMTH_COLORS, PERSONA_LABELS } from '@/lib/supabase-types';
 
@@ -269,10 +269,21 @@ function urgencyLabel(days: number): { label: string; color: string; bg: string 
 }
 
 function suggestTemplate(deal: any): typeof TEMPLATES[0] {
-  const daysSinceSent = daysSince(deal.sent_date);
-  if (!deal.sent_date) return TEMPLATES.find(t => t.id === 'dc-init-city')!;
-  if (daysSinceSent && daysSinceSent > 7) return TEMPLATES.find(t => t.id === 'df-nudge')!;
-  return TEMPLATES.find(t => t.id === 'df-decision')!;
+  const sentAgo = daysSince(deal.sent_date);
+  const isConference = !!deal.events?.conference_association;
+
+  // Never sent — use initial outreach
+  if (sentAgo === null) {
+    return isConference
+      ? TEMPLATES.find(t => t.id === 'dc-init-conf')!
+      : TEMPLATES.find(t => t.id === 'dc-init-city')!;
+  }
+  // Sent < 7 days ago — nudge
+  if (sentAgo < 7) return TEMPLATES.find(t => t.id === 'df-nudge')!;
+  // Sent 7-14 days ago — decision push
+  if (sentAgo < 14) return TEMPLATES.find(t => t.id === 'df-decision')!;
+  // Sent 14+ days ago — scarcity close
+  return TEMPLATES.find(t => t.id === 'dc-scarcity')!;
 }
 
 type Step = 'queue' | 'search' | 'template' | 'preview';
@@ -309,7 +320,7 @@ export default function DispatchPage() {
       setLoadingQueue(true);
       const { data } = await supabase
         .from('deals')
-        .select('*, companies(id, name), contacts(id, first_name, last_name, email, title), events(id, name, event_date, city)')
+        .select('*, companies(id, name), contacts(id, first_name, last_name, email, title), events(id, name, event_date, city, conference_association, sponsor_model, format)')
         .eq('status', 'prop_sent')
         .order('created_at', { ascending: true });
 
@@ -366,15 +377,33 @@ export default function DispatchPage() {
     const contact = { ...deal.contacts, company: deal.companies };
     setSelected({ [contact.id]: contact });
     setTplId(deal.suggested_template.id);
-    // Pre-fill city and date vars
-    if (deal.events?.city) setVars(v => ({ ...v, '{CITY}': deal.events.city }));
+
+    // Pre-fill all vars from event context
+    const newVars: Record<string, string> = { ...vars };
+
+    if (deal.events?.city) newVars['{CITY}'] = deal.events.city;
+    if (deal.events?.conference_association) newVars['{CONF}'] = deal.events.conference_association;
+
     if (deal.events?.event_date) {
       const d = new Date(deal.events.event_date + 'T12:00:00');
-      const display = d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-      const short = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      setVars(v => ({ ...v, '{DATE}': display, '{DS}': short }));
+      newVars['{DATE}'] = d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+      newVars['{DS}'] = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     }
-    setStep('template');
+
+    // Price based on sponsor model
+    if (deal.events?.sponsor_model === 'flexible') {
+      newVars['{PRICE}'] = '$30,000 (exclusive) or $15,000 (co-sponsor)';
+    } else if (deal.events?.sponsor_model === 'co_sponsor') {
+      newVars['{PRICE}'] = '$15,000';
+    } else if (deal.events?.format === 'shark_tank') {
+      newVars['{PRICE}'] = '$40,000';
+    }
+
+    // Amount from deal
+    if (deal.amount) newVars['{PRICE}'] = `$${deal.amount.toLocaleString()}`;
+
+    setVars(newVars);
+    setStep('preview'); // Skip straight to preview
   };
 
   const filteredTemplates = trackFilter ? TEMPLATES.filter(t => t.track === trackFilter) : TEMPLATES;
@@ -412,7 +441,7 @@ export default function DispatchPage() {
     <div>
       <div style={{ marginBottom: 'var(--space-6)' }}>
         <h1 className="page-title">Dispatch</h1>
-        <p className="page-subtitle">Priority queue → Select → Template → Gmail drafts</p>
+        <p className="page-subtitle">Priority queue → instant draft → Gmail</p>
       </div>
 
       {/* Step tabs */}
@@ -702,10 +731,15 @@ export default function DispatchPage() {
       {/* ═══ STEP: PREVIEW ═══ */}
       {step === 'preview' && tpl && (
         <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-5)' }}>
-            <h2 style={{ fontSize: 'var(--text-lg)', fontWeight: 600, margin: 0 }}>
-              Preview — {selectedCount} email{selectedCount !== 1 ? 's' : ''}
-            </h2>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)' }}>
+            <div>
+              <h2 style={{ fontSize: 'var(--text-lg)', fontWeight: 600, margin: 0 }}>
+                Preview — {selectedCount} email{selectedCount !== 1 ? 's' : ''}
+              </h2>
+              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 4 }}>
+                Template: <strong>{tpl.name}</strong> · <button className="btn btn-ghost btn-sm" style={{ fontSize: 'var(--text-xs)', padding: '2px 6px' }} onClick={() => setStep('template')}>Change template</button>
+              </div>
+            </div>
             <button className="btn btn-primary" onClick={createDrafts} disabled={drafting}
               style={{ background: 'var(--green)', borderColor: 'var(--green)' }}>
               {drafting ? 'Creating drafts…' : `✉ Create ${selectedCount} Gmail draft${selectedCount !== 1 ? 's' : ''}`}
@@ -754,7 +788,7 @@ export default function DispatchPage() {
           })}
 
           <div style={{ marginTop: 'var(--space-5)', display: 'flex', justifyContent: 'space-between' }}>
-            <button className="btn btn-secondary" onClick={() => setStep('template')}>← Back to template</button>
+            <button className="btn btn-secondary" onClick={() => setStep('queue')}>← Back to queue</button>
             <button className="btn btn-primary" onClick={createDrafts} disabled={drafting}
               style={{ background: 'var(--green)', borderColor: 'var(--green)' }}>
               {drafting ? 'Creating drafts…' : `✉ Create ${selectedCount} Gmail draft${selectedCount !== 1 ? 's' : ''}`}
