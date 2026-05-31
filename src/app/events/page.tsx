@@ -43,15 +43,18 @@ export default function EventsPage() {
   const supabase = createClient();
 
   const loadEvents = useCallback(async () => {
-    const [eventsRes, sponsorRes] = await Promise.all([
-      supabase.from('events').select('*').order('event_date', { ascending: true }),
-      supabase.from('event_sponsors').select('event_id'),
-    ]);
+    
+const [eventsRes, dealsRes] = await Promise.all([
+  supabase.from('events').select('*').order('event_date', { ascending: true }),
+  supabase.from('deals').select('event_id').eq('status', 'prop_signed'),
+]);
 
-    const countMap: Record<string, number> = {};
-    (sponsorRes.data || []).forEach((s: { event_id: string }) => {
-      countMap[s.event_id] = (countMap[s.event_id] || 0) + 1;
-    });
+const countMap: Record<string, number> = {};
+(dealsRes.data || []).forEach((s: { event_id: string }) => {
+  countMap[s.event_id] = (countMap[s.event_id] || 0) + 1;
+});
+
+
 
     const enriched = (eventsRes.data || []).map((e: Record<string, unknown>) => ({
       ...e,
