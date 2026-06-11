@@ -4,6 +4,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-client';
 import type { Company, CompanyStatus } from '@/lib/supabase-types';
 import { STATUS_LABELS, STATUS_COLORS } from '@/lib/supabase-types';
@@ -32,6 +33,8 @@ export default function CompaniesPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(0);
   const [total, setTotal] = useState(0);
+  const [showAdd, setShowAdd] = useState(false);
+  const router = useRouter();
 
   const PAGE_SIZE = 50;
 
@@ -100,7 +103,7 @@ export default function CompaniesPage() {
   return (
     <div>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--space-6)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--space-6)', gap: 'var(--space-4)' }}>
         <div>
           <h1 className="page-title">Companies</h1>
           <p className="page-subtitle">
@@ -108,6 +111,7 @@ export default function CompaniesPage() {
             {statusFilter && ` · ${STATUS_LABELS[statusFilter]}`}
           </p>
         </div>
+        <button className="btn btn-primary" onClick={() => setShowAdd(true)}>+ Add Company</button>
       </div>
 
       {/* Filters */}
@@ -201,7 +205,7 @@ export default function CompaniesPage() {
             </thead>
             <tbody>
               {companies.map(company => (
-                <tr key={company.id} onClick={() => window.location.href = `/companies/${company.id}`} style={{ cursor: 'pointer' }}>
+                <tr key={company.id} onClick={() => router.push(`/companies/${company.id}`)} style={{ cursor: 'pointer' }}>
                   <td onClick={e => e.stopPropagation()}>
                     <input
                       type="checkbox"
@@ -268,6 +272,139 @@ export default function CompaniesPage() {
         >
           Next →
         </button>
+      </div>
+
+      {showAdd && (
+        <AddCompanyModal
+          onClose={() => setShowAdd(false)}
+          onCreated={(id) => router.push(`/companies/${id}`)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────  Add Company modal  ─────────────────────────
+function AddCompanyModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
+  const [form, setForm] = useState<Record<string, string>>({
+    name: '', url: '', status: 'prospect', linkedin: '', focus: '',
+    employees: '', city: '', state: '', country: '', region: '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const set = (k: string, v: string) => setForm(prev => ({ ...prev, [k]: v }));
+
+  async function handleCreate() {
+    setError('');
+    if (!form.name.trim()) { setError('Company name is required.'); return; }
+    if (!form.url.trim()) { setError('Domain / URL is required.'); return; }
+
+    setSaving(true);
+    const employeesNum = form.employees.trim() ? parseInt(form.employees.replace(/[^0-9]/g, ''), 10) : null;
+    const payload: Record<string, any> = {
+      name: form.name.trim(),
+      url: form.url.trim(),
+      status: form.status || 'prospect',
+      linkedin: form.linkedin.trim() || null,
+      focus: form.focus.trim() || null,
+      employees: Number.isFinite(employeesNum as number) ? employeesNum : null,
+      city: form.city.trim() || null,
+      state: form.state.trim() || null,
+      country: form.country.trim() || null,
+      region: form.region || null,
+      conference_count: 0,
+    };
+    const { data, error: insErr } = await supabase
+      .from('companies')
+      .insert(payload)
+      .select('id')
+      .single();
+    setSaving(false);
+    if (insErr) {
+      setError(insErr.message || 'Could not create company.');
+      return;
+    }
+    if (data?.id) onCreated(data.id);
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2 className="modal-title">Add Company</h2>
+          <button className="btn-ghost" onClick={onClose} style={{ padding: 4, fontSize: 20 }}>✕</button>
+        </div>
+
+        <div className="modal-body">
+          <div className="form-grid">
+            <div className="full">
+              <label className="field-label">Company name *</label>
+              <input className="input" value={form.name} onChange={e => set('name', e.target.value)} autoFocus />
+            </div>
+            <div className="full">
+              <label className="field-label">Domain / URL *</label>
+              <input className="input" value={form.url} onChange={e => set('url', e.target.value)} placeholder="company.com" />
+            </div>
+
+            <div>
+              <label className="field-label">Status</label>
+              <select className="input select" value={form.status} onChange={e => set('status', e.target.value)}>
+                {STATUS_OPTIONS.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="field-label">Region</label>
+              <select className="input select" value={form.region} onChange={e => set('region', e.target.value)}>
+                <option value="">— None —</option>
+                <option value="North America">North America</option>
+                <option value="EMEA">EMEA</option>
+                <option value="APAC">APAC</option>
+                <option value="LATAM">LATAM</option>
+              </select>
+            </div>
+
+            <div className="full">
+              <label className="field-label">Focus</label>
+              <input className="input" value={form.focus} onChange={e => set('focus', e.target.value)} placeholder="e.g. Cloud security, SIEM…" />
+            </div>
+
+            <div>
+              <label className="field-label">LinkedIn</label>
+              <input className="input" value={form.linkedin} onChange={e => set('linkedin', e.target.value)} />
+            </div>
+            <div>
+              <label className="field-label">Employees</label>
+              <input className="input" inputMode="numeric" value={form.employees} onChange={e => set('employees', e.target.value)} />
+            </div>
+
+            <div>
+              <label className="field-label">City</label>
+              <input className="input" value={form.city} onChange={e => set('city', e.target.value)} />
+            </div>
+            <div>
+              <label className="field-label">State</label>
+              <input className="input" value={form.state} onChange={e => set('state', e.target.value)} />
+            </div>
+            <div className="full">
+              <label className="field-label">Country</label>
+              <input className="input" value={form.country} onChange={e => set('country', e.target.value)} />
+            </div>
+          </div>
+
+          {error && (
+            <div style={{ marginTop: 'var(--space-4)', padding: 'var(--space-3)', borderRadius: 'var(--radius-md)', background: 'var(--red-soft)', color: 'var(--red)', border: '1px solid var(--red)', fontSize: 'var(--text-sm)', fontWeight: 600 }}>
+              {error}
+            </div>
+          )}
+        </div>
+
+        <div className="modal-footer" style={{ justifyContent: 'flex-end' }}>
+          <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" onClick={handleCreate} disabled={saving}>
+            {saving ? 'Creating…' : 'Create Company'}
+          </button>
+        </div>
       </div>
     </div>
   );
