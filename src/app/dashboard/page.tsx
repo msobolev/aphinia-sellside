@@ -29,7 +29,6 @@ interface PipelineDeal {
   status: string;
   sent_date: string | null;
   follow_up_date: string | null;
-  follow_up: string | null;
   companies: { name: string } | null;
   contacts: { first_name: string; last_name: string } | null;
   events: { name: string } | null;
@@ -43,8 +42,8 @@ interface ClientGap {
 }
 
 const STAGE_BADGE: Record<string, string> = {
-  draft: 'badge-yellow', prop_sent: 'badge-blue', prop_signed: 'badge-green',
-  invoice_sent: 'badge-purple', invoice_paid: 'badge-green', closed_lost: 'badge-red',
+  opportunity: 'badge-yellow', prop_sent: 'badge-blue', prop_signed: 'badge-green',
+  no_inventory: 'badge-gray', refunded: 'badge-purple', closed_lost: 'badge-red',
 };
 
 export default function DashboardPage() {
@@ -73,21 +72,20 @@ export default function DashboardPage() {
 
     if (!eventData) { setEvents([]); return; }
 
-    // Get sponsor counts per event
-    const { data: sponsors } = await supabase
-      .from('event_sponsors')
-      .select('event_id, id');
-
-    // Get booked revenue per event from deals
+    // Sold slots AND booked revenue both come from signed deals — single source of
+    // truth, so the dashboard matches the Events page and reflects new signed deals.
     const { data: dealData } = await supabase
       .from('deals')
       .select('event_id, amount, status')
-      .in('status', ['prop_signed', 'invoice_sent', 'invoice_paid']);
+      .eq('status', 'prop_signed');
 
     const sponsorCounts: Record<string, number> = {};
     const revBooked: Record<string, number> = {};
-    sponsors?.forEach((s: any) => { sponsorCounts[s.event_id] = (sponsorCounts[s.event_id] || 0) + 1; });
-    dealData?.forEach((d: any) => { if (d.event_id) revBooked[d.event_id] = (revBooked[d.event_id] || 0) + (d.amount || 0); });
+    dealData?.forEach((d: any) => {
+      if (!d.event_id) return;
+      sponsorCounts[d.event_id] = (sponsorCounts[d.event_id] || 0) + 1;
+      revBooked[d.event_id] = (revBooked[d.event_id] || 0) + (d.amount || 0);
+    });
 
     setEvents(eventData.map(e => ({
       ...e,
@@ -99,8 +97,8 @@ export default function DashboardPage() {
   async function loadPipeline() {
     const { data } = await supabase
       .from('deals')
-      .select('id, company_id, amount, status, sent_date, follow_up_date, follow_up, companies(name), contacts(first_name, last_name), events(name)')
-      .in('status', ['draft', 'prop_sent', 'prop_signed'])
+      .select('id, company_id, amount, status, sent_date, follow_up_date, companies(name), contacts(first_name, last_name), events(name)')
+      .in('status', ['opportunity', 'prop_sent', 'prop_signed'])
       .order('sent_date', { ascending: true });
     setDeals((data as unknown as PipelineDeal[]) || []);
   }
@@ -118,7 +116,7 @@ export default function DashboardPage() {
     const { data: activeDeals } = await supabase
       .from('deals')
       .select('company_id, id')
-      .in('status', ['draft', 'prop_sent', 'prop_signed']);
+      .in('status', ['opportunity', 'prop_sent', 'prop_signed']);
 
     const activeDealCounts: Record<string, number> = {};
     activeDeals?.forEach((d: any) => { activeDealCounts[d.company_id] = (activeDealCounts[d.company_id] || 0) + 1; });
@@ -272,14 +270,15 @@ export default function DashboardPage() {
                       <td><span className={`badge ${STAGE_BADGE[d.status] || 'badge-gray'}`}>{DEAL_STAGE_LABELS[d.status] || d.status}</span></td>
                       <td style={{ textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>${(d.amount || 0).toLocaleString()}</td>
                       <td>
-                        {age != null && age > 0 ? (
+                        {d.status === 'prop_signed' ? (
+                          <span style={{ color: 'var(--text-tertiary)' }}>—</span>
+                        ) : age != null && age > 0 ? (
                           <span className={`badge ${age > 14 ? 'badge-red' : age > 7 ? 'badge-yellow' : 'badge-gray'}`}>{age}d</span>
                         ) : '—'}
                       </td>
                       <td>
                         <div style={{ fontSize: 'var(--text-sm)', color: isOverdue ? 'var(--red)' : 'var(--text-secondary)', fontWeight: isOverdue ? 600 : 400 }}>
                           {isOverdue && '⚠️ '}
-                          {d.follow_up || ''}
                           {d.follow_up_date && (
                             <span style={{ marginLeft: 'var(--space-2)', fontSize: 'var(--text-xs)' }}>
                               {new Date(d.follow_up_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}

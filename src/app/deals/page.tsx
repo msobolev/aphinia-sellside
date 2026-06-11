@@ -19,7 +19,6 @@ interface Deal {
   signed_date: string | null;
   invoice_date: string | null;
   paid_date: string | null;
-  follow_up: string | null;
   follow_up_date: string | null;
   notes: string | null;
   created_at: string;
@@ -59,7 +58,6 @@ const EMPTY_FORM = {
   amount: 15000,
   status: 'draft',
   sent_date: '',
-  follow_up: '',
   follow_up_date: '',
   notes: '',
 };
@@ -154,7 +152,6 @@ export default function DealsPage() {
       amount: deal.amount || 0,
       status: deal.status || 'draft',
       sent_date: deal.sent_date || '',
-      follow_up: deal.follow_up || '',
       follow_up_date: deal.follow_up_date || '',
       notes: deal.notes || '',
     });
@@ -165,27 +162,33 @@ export default function DealsPage() {
     if (!form.company_id) return;
     setSaving(true);
 
-    const payload = {
+    const today = new Date().toISOString().slice(0, 10);
+    const payload: Record<string, unknown> = {
       company_id: form.company_id,
       contact_id: form.contact_id || null,
       event_id: form.event_id || null,
       amount: form.amount,
       status: form.status,
       sent_date: form.sent_date || null,
-      follow_up: form.follow_up.trim() || null,
       follow_up_date: form.follow_up_date || null,
       notes: form.notes.trim() || null,
     };
+    // A signed deal needs a signed_date — stamp today if it isn't set yet.
+    if (form.status === 'prop_signed') payload.signed_date = today;
 
-    if (editingId) {
-      await supabase.from('deals').update(payload).eq('id', editingId);
-      showToast('Deal updated');
-    } else {
-      await supabase.from('deals').insert(payload);
-      showToast('Deal created');
-    }
+    const { error } = editingId
+      ? await supabase.from('deals').update(payload).eq('id', editingId)
+      : await supabase.from('deals').insert(payload);
 
     setSaving(false);
+
+    if (error) {
+      console.error('Deal save failed:', error);
+      showToast(`Save failed: ${error.message}`, 8000);
+      return; // keep the modal open so the edit isn't lost
+    }
+
+    showToast(editingId ? 'Deal updated' : 'Deal created');
     setModalOpen(false);
     loadDeals();
   }
@@ -199,9 +202,9 @@ export default function DealsPage() {
     loadDeals();
   }
 
-  function showToast(msg: string) {
+  function showToast(msg: string, ms = 2500) {
     setToast(msg);
-    setTimeout(() => setToast(''), 2000);
+    setTimeout(() => setToast(''), ms);
   }
 
   function updateForm(field: string, value: string | number) {
@@ -419,11 +422,6 @@ export default function DealsPage() {
               <div>
                 <label style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 'var(--space-1)' }}>Follow-up Date</label>
                 <input className="input" type="date" value={form.follow_up_date} onChange={e => updateForm('follow_up_date', e.target.value)} />
-              </div>
-
-              <div style={{ gridColumn: '1 / -1' }}>
-                <label style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 'var(--space-1)' }}>Follow-up Note</label>
-                <input className="input" value={form.follow_up} onChange={e => updateForm('follow_up', e.target.value)} placeholder="e.g. Send revised proposal" />
               </div>
 
               <div style={{ gridColumn: '1 / -1' }}>
